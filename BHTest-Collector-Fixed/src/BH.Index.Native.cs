@@ -60,6 +60,12 @@ namespace BH.Native
 
         public GraphIndex(string path, bool create, bool writable)
         {
+            // SQLite reports a missing file as "unable to open database file" (error 14),
+            // which hides the real cause. A relative path is resolved from the process
+            // working directory, which PowerShell's Set-Location does not change.
+            if (!create && !File.Exists(path))
+                throw new FileNotFoundException("Graph index not found: " + Path.GetFullPath(path) +
+                    ". Relative paths resolve from the process working directory, not PowerShell's current location; pass the full path to graph.sqlite.", path);
             try
             {
                 Check(sqlite3_open_v2(Utf8(path), out db, create ? 6 : writable ? 2 : 1, IntPtr.Zero));

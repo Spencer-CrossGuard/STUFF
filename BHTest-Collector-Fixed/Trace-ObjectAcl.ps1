@@ -28,6 +28,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($IndexPath) {
+    # Check before any LDAP work. Resolve against PowerShell's current location: SQLite itself
+    # resolves relative paths from the process working directory, which can differ.
+    if (-not (Test-Path -LiteralPath $IndexPath -PathType Leaf)) {
+        throw "Index file not found: '$IndexPath'. Pass the full path to the report's graph.sqlite, for example C:\path\to\BHData\reports\<report name>\graph.sqlite."
+    }
+    $IndexPath = (Resolve-Path -LiteralPath $IndexPath).ProviderPath
+}
 Import-Module (Join-Path $PSScriptRoot 'src/BH.Core.psm1') -Force -DisableNameChecking
 Initialize-BHNative
 

@@ -180,7 +180,10 @@ namespace BH.Native
                     Edge("access", trustee, id, "AllowedToAct", false, false);
             if (kind == "computers" || kind == "users")
                 foreach (string spn in Strings(entry, "msDS-AllowedToDelegateTo"))
-                    Edge("access", id, "SPN:" + spn.ToUpperInvariant(), "AllowedToDelegate", false, true);
+                {
+                    string host = DirectoryIdentity.SpnHost(spn);
+                    if (host != null) Edge("access", id, "SPNHOST:" + host.ToUpperInvariant(), "AllowedToDelegate", false, true);
+                }
 
             if (kind == "domains" || kind == "ous" || kind == "sites")
             {
@@ -197,7 +200,11 @@ namespace BH.Native
             Edge("acl", parsed.OwnerSid, id, "Owns", false, false);
             foreach (AceEdge grant in parsed.Aces)
             {
-                if (grant.TrusteeSid == "S-1-3-0" || grant.TrusteeSid == "S-1-3-1" || grant.TrusteeSid == "S-1-5-10") continue;
+                // Skip default, non-actionable trustees: Creator Owner/Group, Self,
+                // Local System and Enterprise Domain Controllers. These hold broad
+                // rights by design and otherwise surface as noise findings.
+                if (grant.TrusteeSid == "S-1-3-0" || grant.TrusteeSid == "S-1-3-1" || grant.TrusteeSid == "S-1-5-10" ||
+                    grant.TrusteeSid == "S-1-5-18" || grant.TrusteeSid == "S-1-5-9") continue;
                 Edge(grant.EdgeType == "Enroll" || grant.EdgeType == "AutoEnroll" ? "observed" : "acl",
                     grant.TrusteeSid, id, grant.EdgeType, false, false);
             }

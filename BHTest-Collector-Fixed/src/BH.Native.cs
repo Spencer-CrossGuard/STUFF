@@ -51,6 +51,22 @@ namespace BH.Native
             return null;
         }
 
+        // Host component of a service principal name, e.g. "cifs/fs01.corp.local:445"
+        // -> "fs01.corp.local". Constrained-delegation targets are matched to the
+        // computer that registered an SPN on this host, which is more reliable than
+        // comparing the full SPN string (a delegate target like cifs/fs01 rarely
+        // appears verbatim in the host's own servicePrincipalName list).
+        public static string SpnHost(string spn)
+        {
+            if (string.IsNullOrEmpty(spn)) return null;
+            int slash = spn.IndexOf('/');
+            if (slash < 0) return null;
+            int start = slash + 1;
+            int end = start;
+            while (end < spn.Length && spn[end] != '/' && spn[end] != ':') end++;
+            return end > start ? spn.Substring(start, end - start) : null;
+        }
+
         public static string PrimaryGroupSid(string accountSid, string groupRid)
         {
             uint rid;
@@ -151,6 +167,8 @@ namespace BH.Native
         private const uint WriteOwner = 0x00080000;
         private const uint WriteProperty = 0x00000020;
         private const uint ControlAccess = 0x00000100;
+        private const uint ReadProperty = 0x00000010;
+        private const uint Self = 0x00000008; // ADS_RIGHT_DS_SELF (validated write)
 
         private static readonly Guid ForceChangePassword = new Guid("00299570-246d-11d0-a768-00aa006e0529");
         private static readonly Guid Member = new Guid("bf9679c0-0de6-11d0-a285-00aa003049e2");
@@ -158,6 +176,10 @@ namespace BH.Native
         private static readonly Guid GetChangesAll = new Guid("1131f6ad-9c07-11d1-f79f-00c04fc2dcd2");
         private static readonly Guid Enroll = new Guid("0e10c968-78fb-11d2-90d4-00c04f79dc55");
         private static readonly Guid AutoEnroll = new Guid("a05b8cc2-17bc-4802-a710-e7c15ab866a2");
+        private static readonly Guid KeyCredentialLink = new Guid("5b47d60f-6090-40b2-9f37-2a4de88f3063"); // msDS-KeyCredentialLink (shadow credentials)
+        private static readonly Guid ServicePrincipalName = new Guid("f3a64788-5306-11d1-a9c5-0000f80367c1"); // servicePrincipalName
+        private static readonly Guid GmsaPassword = new Guid("e362ed86-b728-0842-b27d-2dea7a9df218"); // msDS-ManagedPassword (gMSA)
+        private static readonly Guid GpLink = new Guid("f30e3bbe-9ff0-11d1-b603-0000f80367c1"); // gPLink
 
         private struct Rule
         {
@@ -260,7 +282,11 @@ namespace BH.Native
                 if ((broad & MappedAll) == MappedAll) Emit(result.Aces, rule, "GenericAll");
                 else
                 {
-                    if ((broad & MappedWrite) == MappedWrite) Emit(result.Aces, rule, "GenericWrite");
+                    // Write to all properties (a WriteProperty ACE with no object
+                    // type, or the GENERIC_WRITE generic bit expanded above) is
+                    // GenericWrite. Requiring the full MappedWrite bit set missed a
+                    // plain all-properties WriteProperty grant, the common case.
+                    if ((broad & WriteProperty) != 0) Emit(result.Aces, rule, "GenericWrite");
                     if ((broad & WriteDacl) != 0) Emit(result.Aces, rule, "WriteDacl");
                     if ((broad & WriteOwner) != 0) Emit(result.Aces, rule, "WriteOwner");
                     if ((broad & ControlAccess) != 0) Emit(result.Aces, rule, "AllExtendedRights");
@@ -272,6 +298,26 @@ namespace BH.Native
                 if ((kind == null || kind == "group") && rule.ObjectType == Member &&
                     (AllowedMask(rule, restrictions, Member) & WriteProperty) != 0)
                     Emit(result.Aces, rule, "AddMember");
+                // Self-membership validated write: add/remove self to the group.
+                if ((kind == null || kind == "group") && rule.ObjectType == Member &&
+                    (AllowedMask(rule, restrictions, Member) & Self) != 0)
+                    Emit(result.Aces, rule, "AddSelf");
+                // Shadow credentials: write msDS-KeyCredentialLink on an account.
+                if ((kind == null || kind == "user" || kind == "computers") && rule.ObjectType == KeyCredentialLink &&
+                    (AllowedMask(rule, restrictions, KeyCredentialLink) & WriteProperty) != 0)
+                    Emit(result.Aces, rule, "AddKeyCredentialLink");
+                // Targeted Kerberoast: write servicePrincipalName on an account.
+                if ((kind == null || kind == "user" || kind == "computers") && rule.ObjectType == ServicePrincipalName &&
+                    (AllowedMask(rule, restrictions, ServicePrincipalName) & WriteProperty) != 0)
+                    Emit(result.Aces, rule, "WriteSPN");
+                // Read a gMSA's managed password.
+                if ((kind == null || kind == "user" || kind == "computers") && rule.ObjectType == GmsaPassword &&
+                    (AllowedMask(rule, restrictions, GmsaPassword) & ReadProperty) != 0)
+                    Emit(result.Aces, rule, "ReadGMSAPassword");
+                // Link a GPO to this OU / domain / site.
+                if ((kind == "ous" || kind == "domain" || kind == "sites") && rule.ObjectType == GpLink &&
+                    (AllowedMask(rule, restrictions, GpLink) & WriteProperty) != 0)
+                    Emit(result.Aces, rule, "WriteGPLink");
                 if (kind == "certtemplates" || kind == "enterprisecas")
                 {
                     if (rule.ObjectType == Enroll && (AllowedMask(rule, restrictions, Enroll) & ControlAccess) != 0)

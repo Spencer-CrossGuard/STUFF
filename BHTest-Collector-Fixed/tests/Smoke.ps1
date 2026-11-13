@@ -132,6 +132,18 @@ try {
     Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'AddMember') 'Object-specific AddMember right failed.'
     $acl = Get-BHSyntheticAcl "D:(OA;;CR;1131f6aa-9c07-11d1-f79f-00c04fc2dcd2;;$user)(OA;;CR;1131f6ad-9c07-11d1-f79f-00c04fc2dcd2;;$user)" 'domain'
     Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'DCSync') 'Paired DCSync rights failed.'
+    $acl = Get-BHSyntheticAcl "D:(A;;WP;;;$user)" 'user'
+    Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'GenericWrite') 'Write-all-properties was not mapped to GenericWrite.'
+    $acl = Get-BHSyntheticAcl "D:(OA;;SW;bf9679c0-0de6-11d0-a285-00aa003049e2;;$user)" 'group'
+    Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'AddSelf') 'Self-membership validated write was not mapped to AddSelf.'
+    $acl = Get-BHSyntheticAcl "D:(OA;;WP;5b47d60f-6090-40b2-9f37-2a4de88f3063;;$user)" 'user'
+    Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'AddKeyCredentialLink') 'Key-credential write was not mapped to AddKeyCredentialLink.'
+    $acl = Get-BHSyntheticAcl "D:(OA;;WP;f3a64788-5306-11d1-a9c5-0000f80367c1;;$user)" 'computers'
+    Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'WriteSPN') 'servicePrincipalName write was not mapped to WriteSPN.'
+    $acl = Get-BHSyntheticAcl "D:(OA;;RP;e362ed86-b728-0842-b27d-2dea7a9df218;;$user)" 'user'
+    Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'ReadGMSAPassword') 'Managed-password read was not mapped to ReadGMSAPassword.'
+    $acl = Get-BHSyntheticAcl "D:(OA;;WP;f30e3bbe-9ff0-11d1-b603-0000f80367c1;;$user)" 'ous'
+    Assert-BHTest ($acl.Aces.Count -eq 1 -and $acl.Aces[0].EdgeType -eq 'WriteGPLink') 'gPLink write was not mapped to WriteGPLink.'
 
     Import-Module (Join-Path $project 'src/BH.Core.psm1') -DisableNameChecking
     Import-BHLdapAssemblies

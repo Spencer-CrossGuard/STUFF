@@ -181,7 +181,17 @@ namespace BH.Native
                             string template = JsonRecordReader.ExtractField(line, "TemplateAlias");
                             if (template != null) WriteAlias(alias, "TEMPLATE:" + template.ToUpperInvariant(), id);
                             foreach (string spn in JsonRecordReader.StringArray(line, "Spns"))
+                            {
                                 WriteAlias(alias, "SPN:" + spn.ToUpperInvariant(), id);
+                                // Host alias so a constrained-delegation target
+                                // (cifs/host, http/host, ...) resolves to whichever
+                                // account registered an SPN on that host.
+                                string spnHost = DirectoryIdentity.SpnHost(spn);
+                                if (spnHost != null) WriteAlias(alias, "SPNHOST:" + spnHost.ToUpperInvariant(), id);
+                            }
+                            // A computer's own FQDN is the host most delegate targets name.
+                            string dns = JsonRecordReader.ExtractField(line, "Dns");
+                            if (!string.IsNullOrEmpty(dns)) WriteAlias(alias, "SPNHOST:" + dns.ToUpperInvariant(), id);
                         }
                     }
                 }

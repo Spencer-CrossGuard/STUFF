@@ -25,9 +25,11 @@ param(
 
     [Parameter(ParameterSetName = 'Scan', Mandatory)] [switch] $Scan,
     [Parameter(ParameterSetName = 'Scan', Mandatory)] [string] $BaseDn,
-    [Parameter(ParameterSetName = 'Scan', Mandatory)] [string] $Server,
+    [Parameter(ParameterSetName = 'Scan', Mandatory)]
+    [Parameter(ParameterSetName = 'ResolveNames', Mandatory)] [string] $Server,
     [Parameter(ParameterSetName = 'Scan', Mandatory)] [string] $OutputRoot,
-    [Parameter(ParameterSetName = 'Scan')] [System.Management.Automation.PSCredential] $Credential,
+    [Parameter(ParameterSetName = 'Scan')]
+    [Parameter(ParameterSetName = 'ResolveNames')] [System.Management.Automation.PSCredential] $Credential,
     [Parameter(ParameterSetName = 'Scan')] [int] $MaxThreads = 8,
     [Parameter(ParameterSetName = 'Scan')] [int] $PageSize = 1000,
     [Parameter(ParameterSetName = 'Scan')] [switch] $ResolveExternalNames,
@@ -39,7 +41,9 @@ param(
     [Parameter(ParameterSetName = 'Scan')] [switch] $SkipConfiguration,
 
     [Parameter(ParameterSetName = 'Merge', Mandatory)] [switch] $Merge,
-    [Parameter(ParameterSetName = 'Merge', Mandatory)] [string[]] $ScanPaths,
+    [Parameter(ParameterSetName = 'Merge', Mandatory)]
+    [Parameter(ParameterSetName = 'ResolveNames', Mandatory)] [string[]] $ScanPaths,
+    [Parameter(ParameterSetName = 'ResolveNames', Mandatory)] [switch] $ResolveNames,
     [Parameter(ParameterSetName = 'Merge', Mandatory)] [string] $MergeOutputRoot,
 
     [Parameter(ParameterSetName = 'Report', Mandatory)] [switch] $Report,
@@ -112,6 +116,16 @@ switch ($PSCmdlet.ParameterSetName) {
         }
         Write-Host "`nMerge complete: $mergeDir"
         Get-Content (Join-Path $mergeDir 'merge-metadata.json') -Raw
+    }
+
+    'ResolveNames' {
+        # Names for permission holders outside the scanned domain (other domains in the
+        # forest included) without a rescan. Re-run -Report afterwards to show them.
+        foreach ($scanPath in $ScanPaths) {
+            Write-Host "Resolving names for $scanPath ..."
+            $resolvedNames = @(Resolve-BHExternalPrincipals -ScanDir $scanPath -Server $Server -Credential $Credential)[-1]
+            Write-Host "Resolved $resolvedNames name(s). Run -Report again to include them."
+        }
     }
 
     'Report' {
@@ -837,7 +851,7 @@ switch ($PSCmdlet.ParameterSetName) {
                     # Piped, not assigned: see the note in New-BHJobRunner about
                     # progress output being swallowed by an assignment.
                     Start-BHCollection -BaseDn $target -Server $server -OutputRoot $outRoot `
-                        -Credential $cred -MaxThreads $maxThreads -PageSize $pageSize -CompressOutput:$compressOutput -CollectEndpoints:$collectEndpoints -ProgressCallback {
+                        -Credential $cred -MaxThreads $maxThreads -PageSize $pageSize -CompressOutput:$compressOutput -CollectEndpoints:$collectEndpoints -ResolveExternalNames -ProgressCallback {
                             param($objects, $edges, $errors)
                             Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Objects = $objects; Edges = $edges; Errors = $errors })
                         } | ForEach-Object {

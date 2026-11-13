@@ -341,7 +341,8 @@ function New-BHLdapConnectionBounded {
         [System.Management.Automation.PSCredential] $Credential,
         [int] $PageSize = 1000,
         [int] $ConnectTimeoutSeconds = 20,
-        [int] $OperationTimeoutSeconds = 120
+        [int] $OperationTimeoutSeconds = 120,
+        [int] $Port = 389
     )
 
     $userName = $null
@@ -352,9 +353,9 @@ function New-BHLdapConnectionBounded {
     }
 
     $warmupScript = {
-        param($server, $userName, $password, $operationTimeoutSeconds)
+        param($server, $userName, $password, $operationTimeoutSeconds, $port)
         Add-Type -AssemblyName System.DirectoryServices.Protocols -ErrorAction Stop
-        $identifier = New-Object System.DirectoryServices.Protocols.LdapDirectoryIdentifier($server, 389)
+        $identifier = New-Object System.DirectoryServices.Protocols.LdapDirectoryIdentifier($server, $port)
         $conn = New-Object System.DirectoryServices.Protocols.LdapConnection($identifier)
         $conn.SessionOptions.ProtocolVersion = 3
         $conn.SessionOptions.Signing = $true
@@ -374,7 +375,7 @@ function New-BHLdapConnectionBounded {
 
     $ps = [System.Management.Automation.PowerShell]::Create()
     try {
-        [void]$ps.AddScript($warmupScript).AddArgument($Server).AddArgument($userName).AddArgument($password).AddArgument($OperationTimeoutSeconds)
+        [void]$ps.AddScript($warmupScript).AddArgument($Server).AddArgument($userName).AddArgument($password).AddArgument($OperationTimeoutSeconds).AddArgument($Port)
 
         $asyncResult = $ps.BeginInvoke()
         $completedInTime = $asyncResult.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds($ConnectTimeoutSeconds))
@@ -815,6 +816,31 @@ function Invoke-BHWorker {
         if ($rangeConnection) { $rangeConnection.Dispose() }
     }
 }
+function Get-BHDnDomain {
+    <# "CN=Bob,OU=x,DC=corp,DC=example,DC=com" -> "corp.example.com" #>
+    param([string] $Dn)
+    $parts = foreach ($m in [regex]::Matches($Dn, '(?i)(?:^|,)DC=([^,]+)')) { $m.Groups[1].Value }
+    (@($parts) -join '.').ToLowerInvariant()
+}
+
+function ConvertTo-BHSidFilter {
+    <# Builds an LDAP "(|(objectSid=...)...)" filter from SID strings; $null if none parse. #>
+    param([string[]] $Sids)
+    $parts = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($text in $Sids) {
+        try {
+            $sid = New-Object System.Security.Principal.SecurityIdentifier($text)
+            $bytes = New-Object byte[] $sid.BinaryLength
+            $sid.GetBinaryForm($bytes, 0)
+            $escaped = -join ($bytes | ForEach-Object { '\' + $_.ToString('x2') })
+            $parts.Add("(objectSid=$escaped)")
+        }
+        catch {}
+    }
+    if ($parts.Count -eq 0) { return $null }
+    return '(|' + ($parts -join '') + ')'
+}
+
 function Resolve-BHExternalPrincipals {
     <#
         .SYNOPSIS
@@ -854,67 +880,94 @@ function Resolve-BHExternalPrincipals {
     $root = (Get-BHDefaultNamingContext -Connection $conn).DefaultNamingContext
 
     $writer = [BH.Native.NdjsonWriter]::new((Join-Path $ScanDir 'principals_external.ext.ndjson'), $false)
-    $resolved = 0
-    $failures = 0
+    $resolvedSids = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $state = @{ Resolved = 0 }
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     $plural = @{ group = 'groups'; user = 'users'; computer = 'computers' }
-    try {
-        for ($i = 0; $i -lt $unknown.Length; $i += 40) {
+
+    # Writes one name record per matched entry. Entries found in the forest Global
+    # Catalog get their domain appended (taken from the DN) so same-named principals
+    # in different domains stay distinguishable.
+    $emit = {
+        param($Entries, [bool] $FromForest)
+        foreach ($entry in $Entries) {
+            [byte[]]$sidBytes = $null
+            $sidBytes = Get-BHAttrBytes $entry 'objectSid'
+            if (-not $sidBytes) { continue }
+            $sidStr = [BH.Native.Sid]::ToSidStringSafe($sidBytes)
+            $kind = Get-BHObjectClassKind -Classes (Get-BHAttrStringArray -Entry $entry -Name 'objectClass')
+            if (-not $sidStr -or -not $kind -or -not $plural.ContainsKey($kind)) { continue }
+            $label = Get-BHAttrString $entry 'name'
+            if ($FromForest -and $label) {
+                $domain = Get-BHDnDomain $entry.DistinguishedName
+                if ($domain) { $label = "$label@$domain" }
+            }
+            $rec = (New-Object BH.Native.JsonRecordWriter).Begin().Prop('Id', $sidStr).PropS('Name', $label).Prop('Type', $plural[$kind]).Prop('Dn', $entry.DistinguishedName).End()
+            $writer.WriteLine($rec)
+            [void]$resolvedSids.Add($sidStr)
+            $state.Resolved++
+        }
+    }
+
+    # Looks SIDs up in batches of 40 over one connection holder, with a single
+    # reconnect-and-retry per batch and a give-up after 3 consecutive failures.
+    $runBatches = {
+        param($Holder, $Factory, [string] $SearchBase, [string[]] $Sids, [bool] $FromForest)
+        $failures = 0
+        for ($i = 0; $i -lt $Sids.Length; $i += 40) {
             if ($watch.Elapsed.TotalSeconds -gt $MaxSeconds) {
                 Write-BHLog -Level Warn -Message "Name lookup stopped after $MaxSeconds s; the remaining holders keep their SIDs in the report."
-                break
+                return
             }
-            $parts = New-Object 'System.Collections.Generic.List[string]'
-            $last = [Math]::Min($i + 40, $unknown.Length) - 1
-            for ($j = $i; $j -le $last; $j++) {
-                try {
-                    $sid = New-Object System.Security.Principal.SecurityIdentifier($unknown[$j])
-                    $bytes = New-Object byte[] $sid.BinaryLength
-                    $sid.GetBinaryForm($bytes, 0)
-                    $escaped = -join ($bytes | ForEach-Object { '\' + $_.ToString('x2') })
-                    $parts.Add("(objectSid=$escaped)")
-                }
-                catch {}
-            }
-            if ($parts.Count -eq 0) { continue }
-
+            $last = [Math]::Min($i + 40, $Sids.Length) - 1
+            $filter = ConvertTo-BHSidFilter ([string[]]@($Sids[$i..$last]))
+            if (-not $filter) { continue }
             $req = [System.DirectoryServices.Protocols.SearchRequest]::new(
-                $root, ('(|' + ($parts -join '') + ')'), [System.DirectoryServices.Protocols.SearchScope]::Subtree,
+                $SearchBase, $filter, [System.DirectoryServices.Protocols.SearchScope]::Subtree,
                 [string[]]@('distinguishedName', 'name', 'objectClass', 'objectSid'))
             try {
-                try { $resp = $conn.SendRequest($req) }
+                try { $resp = $Holder.Conn.SendRequest($req) }
                 catch {
                     # one reconnect-and-retry, in case the connection went stale
-                    try { $conn.Dispose() } catch {}
-                    $conn = & $factory
-                    $resp = $conn.SendRequest($req)
+                    try { $Holder.Conn.Dispose() } catch {}
+                    $Holder.Conn = & $Factory
+                    $resp = $Holder.Conn.SendRequest($req)
                 }
                 $failures = 0
             }
             catch {
                 $failures++
                 Write-BHLog -Level Warn -Message "Name lookup batch failed: $($_.Exception.Message)"
-                if ($failures -ge 3) { Write-BHLog -Level Warn -Message 'Giving up on name lookup after 3 failed batches.'; break }
+                if ($failures -ge 3) { Write-BHLog -Level Warn -Message 'Giving up on name lookup after 3 failed batches.'; return }
                 continue
             }
+            & $emit $resp.Entries $FromForest
+        }
+    }
 
-            foreach ($entry in $resp.Entries) {
-                [byte[]]$sidBytes = $null
-                $sidBytes = Get-BHAttrBytes $entry 'objectSid'
-                if (-not $sidBytes) { continue }
-                $sidStr = [BH.Native.Sid]::ToSidStringSafe($sidBytes)
-                $kind = Get-BHObjectClassKind -Classes (Get-BHAttrStringArray -Entry $entry -Name 'objectClass')
-                if (-not $sidStr -or -not $kind -or -not $plural.ContainsKey($kind)) { continue }
-                $rec = (New-Object BH.Native.JsonRecordWriter).Begin().Prop('Id', $sidStr).PropS('Name', (Get-BHAttrString $entry 'name')).Prop('Type', $plural[$kind]).Prop('Dn', $entry.DistinguishedName).End()
-                $writer.WriteLine($rec)
-                $resolved++
-            }
+    $holder = @{ Conn = $conn }
+    $gcHolder = @{ Conn = $null }
+    try {
+        # Pass 1: the scanned domain.
+        & $runBatches $holder $factory $root $unknown $false
+
+        # Pass 2: anything still unnamed belongs to another domain. In a forest the
+        # Global Catalog holds every domain's objects, so an empty search base on
+        # port 3268 finds them. (The scanned domain's own directory cannot.)
+        $pending = @($unknown | Where-Object { -not $resolvedSids.Contains($_) })
+        if ($pending.Count -gt 0 -and $watch.Elapsed.TotalSeconds -le $MaxSeconds) {
+            Write-BHLog -Message "$($pending.Count) holder(s) are not in the scanned domain; looking them up in the forest Global Catalog ..."
+            $gcFactory = { New-BHLdapConnectionBounded -Server $Server -Credential $Credential -Port 3268 }.GetNewClosure()
+            try { $gcHolder.Conn = & $gcFactory }
+            catch { Write-BHLog -Level Warn -Message "The Global Catalog (port 3268) could not be reached, so holders in other domains keep their SIDs: $($_.Exception.Message)" }
+            if ($gcHolder.Conn) { & $runBatches $gcHolder $gcFactory '' ([string[]]$pending) $true }
         }
     }
     finally {
         $writer.Dispose()
-        try { $conn.Dispose() } catch {}
+        foreach ($h in @($holder, $gcHolder)) { if ($h.Conn) { try { $h.Conn.Dispose() } catch {} } }
     }
+    $resolved = $state.Resolved
     Write-BHLog -Message "Resolved names for $resolved of $($unknown.Length) outside permission holder(s)."
     return $resolved
 }

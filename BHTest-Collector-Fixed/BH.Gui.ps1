@@ -99,8 +99,8 @@ switch ($PSCmdlet.ParameterSetName) {
         $scanDir = Start-BHCollection -BaseDn $BaseDn -Server $Server -OutputRoot $OutputRoot `
             -Credential $Credential -MaxThreads $MaxThreads -PageSize $PageSize -ResolveExternalNames:$ResolveExternalNames @scanOptions `
             -ProgressCallback {
-                param($objects, $edges, $errors)
-                Write-Host ("`r  {0,12:N0} objects  {1,12:N0} edges  {2,6:N0} errors  ({3:N0}s)" -f $objects, $edges, $errors, $sw.Elapsed.TotalSeconds) -NoNewline
+                param($objects, $edges, $errors, $shardsDone, $shardsTotal, $stage)
+                Write-Host ("`r  {0,12:N0} objects  {1,12:N0} edges  {2,6:N0} errors  containers {3}/{4}  ({5:N0}s)  {6,-72}" -f $objects, $edges, $errors, $shardsDone, $shardsTotal, $sw.Elapsed.TotalSeconds, $stage) -NoNewline
             }
         Write-Host ""
         Write-Host "Scan complete: $scanDir"
@@ -109,10 +109,14 @@ switch ($PSCmdlet.ParameterSetName) {
 
     'Merge' {
         Write-Host "Merging $($ScanPaths.Count) scan(s)..."
+        $mergeWatch = [System.Diagnostics.Stopwatch]::StartNew()
         $mergeDir = Start-BHMerge -ScanPaths $ScanPaths -OutputRoot $MergeOutputRoot -CompressOutput:(-not $UncompressedOutput) -ProgressCallback {
-            param($phase, $label, $count)
-            if ($phase -eq 'phase') { Write-Host "`n$label" }
-            else { Write-Host "`r  $phase/$label : $count" -NoNewline }
+            param($phase, $label, $count, $done, $total)
+            if ($phase -eq 'phase') { Write-Host ("`n[{0:hh\:mm\:ss}] {1}" -f $mergeWatch.Elapsed, $label) }
+            else {
+                $percent = if ($total -gt 0) { [int](100 * $done / $total) } else { 0 }
+                Write-Host ("`r  {0}  {1}%  {2:N0} records   " -f $label, $percent, $count) -NoNewline
+            }
         }
         Write-Host "`nMerge complete: $mergeDir"
         Get-Content (Join-Path $mergeDir 'merge-metadata.json') -Raw
@@ -133,8 +137,10 @@ switch ($PSCmdlet.ParameterSetName) {
         foreach ($option in 'AnalysisDepth','AnalysisVisitLimit','AnalysisSeconds') {
             if ($PSBoundParameters.ContainsKey($option)) { $analysisOptions[$option] = $PSBoundParameters[$option] }
         }
+        $reportWatch = [System.Diagnostics.Stopwatch]::StartNew()
         $reportPath = Start-BHReport -DatasetPaths $DatasetPaths -OutputDir $ReportOutputDir -ExportCsv:$ExportCsv -BaselineIndexPath $BaselineIndexPath @analysisOptions -ProgressCallback {
-            param($label) Write-Host $label
+            param($label, $meta)
+            if ($meta) { Write-Host ("`r  {0,-150}" -f $label) -NoNewline } else { Write-Host ("`n[{0:hh\:mm\:ss}] {1}" -f $reportWatch.Elapsed, $label) }
         }
         Write-Host "Report written: $reportPath"
     }
@@ -304,6 +310,85 @@ switch ($PSCmdlet.ParameterSetName) {
         function Set-BHStatus($label, $text, $color) {
             $label.Text = $text
             $label.ForeColor = $color
+        }
+
+        # ---- Long-operation status: what it is doing, for how long, and whether it is alive ----
+        $script:ops = @{}
+
+        function Format-BHSpan([TimeSpan] $Span) {
+            '{0:00}:{1:00}:{2:00}' -f [int][Math]::Floor($Span.TotalHours), $Span.Minutes, $Span.Seconds
+        }
+
+        function Format-BHBytes([double] $Bytes) {
+            if ($Bytes -ge 1GB) { return '{0:N1} GB' -f ($Bytes / 1GB) }
+            if ($Bytes -ge 1MB) { return '{0:N0} MB' -f ($Bytes / 1MB) }
+            return '{0:N0} KB' -f ($Bytes / 1KB)
+        }
+
+        # A progress bar that is either determinate (percent) or an animated marquee (null).
+        function Set-BHBar($Bar, $Percent) {
+            if ($null -eq $Percent) {
+                if ($Bar.Style -ne 'Marquee') { $Bar.Style = 'Marquee'; $Bar.MarqueeAnimationSpeed = 30 }
+                return
+            }
+            if ($Bar.Style -ne 'Blocks') { $Bar.Style = 'Blocks' }
+            $Bar.Value = [int][Math]::Max(0, [Math]::Min(100, $Percent))
+        }
+
+        function Start-BHOperation([string] $Key, [string] $WatchFolder) {
+            $script:ops[$Key] = @{
+                Total = [System.Diagnostics.Stopwatch]::StartNew()
+                Step = [System.Diagnostics.Stopwatch]::StartNew()
+                Quiet = [System.Diagnostics.Stopwatch]::StartNew()   # time since the last progress message
+                StartedAt = Get-Date
+                StepName = ''; Detail = 'Starting ...'; Folder = $WatchFolder; Disk = ''; DiskCheckedAt = -10.0
+            }
+        }
+
+        # Records a new step and/or detail. Returns a "finished in" line when the step changed.
+        function Set-BHOperationProgress([string] $Key, [string] $Step, [string] $Detail) {
+            $op = $script:ops[$Key]
+            if (-not $op) { return $null }
+            $finished = $null
+            if ($Step -and $Step -ne $op.StepName) {
+                if ($op.StepName) { $finished = '    finished in {0}: {1}' -f (Format-BHSpan $op.Step.Elapsed), $op.StepName }
+                $op.StepName = $Step; $op.Step.Restart(); $op.Detail = ''
+            }
+            if ($Detail) { $op.Detail = $Detail }
+            $op.Quiet.Restart()
+            return $finished
+        }
+
+        # Two lines: what it is doing, then timing plus disk activity. The disk figure counts only
+        # files written since the operation began, so a stalled job shows "last disk write ... ago".
+        function Get-BHOperationText([string] $Key) {
+            $op = $script:ops[$Key]
+            if (-not $op) { return $null }
+            if ($op.Folder -and ($op.Total.Elapsed.TotalSeconds - $op.DiskCheckedAt) -ge 5) {
+                $op.DiskCheckedAt = $op.Total.Elapsed.TotalSeconds
+                try {
+                    $files = @(Get-ChildItem -LiteralPath $op.Folder -Recurse -Force -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LastWriteTime -ge $op.StartedAt.AddSeconds(-2) })
+                    if ($files.Count) {
+                        $newest = ($files | Measure-Object LastWriteTime -Maximum).Maximum
+                        $op.Disk = 'files written: {0}, last disk write {1} ago' -f (Format-BHBytes ($files | Measure-Object Length -Sum).Sum), (Format-BHSpan ([DateTime]::Now - $newest))
+                    }
+                } catch { $op.Disk = '' }
+            }
+            $first = if ($op.StepName) { if ($op.Detail) { "$($op.StepName)  |  $($op.Detail)" } else { $op.StepName } } else { $op.Detail }
+            $second = 'This step {0}   |   Total {1}   |   Last update {2} ago' -f (Format-BHSpan $op.Step.Elapsed), (Format-BHSpan $op.Total.Elapsed), (Format-BHSpan $op.Quiet.Elapsed)
+            if ($op.Disk) { $second += "   |   $($op.Disk)" }
+            return "$first`r`n$second"
+        }
+
+        function Complete-BHOperation([string] $Key) {
+            $op = $script:ops[$Key]
+            if (-not $op) { return $null }
+            $script:ops.Remove($Key)
+            [pscustomobject]@{
+                Total = Format-BHSpan $op.Total.Elapsed
+                LastStep = $(if ($op.StepName) { '    finished in {0}: {1}' -f (Format-BHSpan $op.Step.Elapsed), $op.StepName })
+            }
         }
 
         # Background-job runner: polls every 400ms, surfaces each Receive-Job
@@ -555,9 +640,9 @@ switch ($PSCmdlet.ParameterSetName) {
         $txtScanLog.Font = $fontMono
         $txtScanLog.BackColor = [System.Drawing.Color]::White
 
-        $scanLayout = New-BHLayout @('100%') @(175, '68%', 43, 26, '32%') 18
-        $tabScan.AutoScrollMinSize = [System.Drawing.Size]::new(0, 710)
-        $scanLayout.MinimumSize = [System.Drawing.Size]::new(0, 710)
+        $scanLayout = New-BHLayout @('100%') @(175, '68%', 43, 46, '32%') 18
+        $tabScan.AutoScrollMinSize = [System.Drawing.Size]::new(0, 730)
+        $scanLayout.MinimumSize = [System.Drawing.Size]::new(0, 730)
         $tabScan.Controls.Add($scanLayout)
         Add-BHCell $scanLayout $grpConn 0 0
         Add-BHCell $scanLayout $grpTarget 0 1
@@ -852,8 +937,8 @@ switch ($PSCmdlet.ParameterSetName) {
                     # progress output being swallowed by an assignment.
                     Start-BHCollection -BaseDn $target -Server $server -OutputRoot $outRoot `
                         -Credential $cred -MaxThreads $maxThreads -PageSize $pageSize -CompressOutput:$compressOutput -CollectEndpoints:$collectEndpoints -ResolveExternalNames -ProgressCallback {
-                            param($objects, $edges, $errors)
-                            Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Objects = $objects; Edges = $edges; Errors = $errors })
+                            param($objects, $edges, $errors, $shardsDone, $shardsTotal, $stage)
+                            Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Objects = $objects; Edges = $edges; Errors = $errors; ShardsDone = $shardsDone; ShardsTotal = $shardsTotal; Stage = $stage })
                         } | ForEach-Object {
                             if ($_ -is [string]) { $scanDirs.Add($_); [pscustomobject]@{ Kind = 'result'; ScanDir = $_ } } else { $_ }
                         }
@@ -873,24 +958,15 @@ switch ($PSCmdlet.ParameterSetName) {
             }
             elseif ($autoReport -and $scanDirs.Count -gt 0) {
                 try {
-                    $dataset = $null
-                    if ($scanDirs.Count -ge 2) {
-                        Log "Merging $($scanDirs.Count) scans ..."
-                        $dataset = Start-BHMerge -ScanPaths $scanDirs.ToArray() -OutputRoot $mergedRoot -ProgressCallback {
-                            param($phase, $label, $count)
-                            if ($phase -eq 'phase') { Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'stage'; Label = $label }) }
-                        }
-                        $dataset = @($dataset)[-1]
-                        Log "Merged dataset: $dataset"
-                    }
-                    else {
-                        $dataset = $scanDirs[0]
-                    }
-                    Log 'Building report ...'
+                    # A report reads several scan folders directly and de-duplicates across them, so a
+                    # separate merge (a full extra load and rewrite of every record) is not needed.
+                    # Use the Merge tab if you want a reusable merged dataset.
+                    $datasets = @($scanDirs.ToArray())
+                    Log "Building one report directly from $($datasets.Count) scan folder(s) (no separate merge step) ..."
                     $reportDir = Join-Path $reportsRoot ('batch-{0:yyyyMMdd-HHmmss}' -f (Get-Date))
-                    $reportPath = Start-BHReport -DatasetPaths @($dataset) -OutputDir $reportDir -ProgressCallback {
-                        param($label)
-                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'stage'; Label = $label })
+                    $reportPath = Start-BHReport -DatasetPaths $datasets -OutputDir $reportDir -ProgressCallback {
+                        param($label, $meta)
+                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'stage'; Label = $label; Pct = $(if ($meta) { $meta.Pct } else { $null }) })
                     }
                     $reportPath = @($reportPath)[-1]
                     Log "Report: $reportPath"
@@ -962,14 +1038,31 @@ switch ($PSCmdlet.ParameterSetName) {
                     switch ($item.Kind) {
                         'target' {
                             $script:targetText = "Target $($item.Index) of $($item.Total)"
-                            Set-BHStatus $lblScanProgress "$($script:targetText): $($item.Dn)" $clrWarn
+                            $script:scanIndex = [int]$item.Index
+                            $script:scanTotal = [int]$item.Total
+                            $script:targetWatch = [System.Diagnostics.Stopwatch]::StartNew()
+                            # The bar shows completed targets plus the finished share of the current one.
+                            Set-BHBar $progScan ([int](100 * ($script:scanIndex - 1) / [Math]::Max(1, $script:scanTotal)))
+                            Set-BHStatus $lblScanProgress "$($script:targetText): $($item.Dn)`r`nFinding the containers to scan ..." $clrWarn
                         }
                         'progress' {
-                            if ($progScan.Style -ne 'Blocks') { $progScan.Style = 'Blocks'; $progScan.Value = 100 }
-                            Set-BHStatus $lblScanProgress "$($script:targetText) | Objects: $($item.Objects)   Edges: $($item.Edges)   Errors: $($item.Errors)" ([System.Drawing.Color]::Black)
+                            $targetCount = [Math]::Max(1, [int]$script:scanTotal)
+                            $targetIndex = [Math]::Max(1, [int]$script:scanIndex)
+                            $fraction = if ($item.ShardsTotal -gt 0) { [double]$item.ShardsDone / [double]$item.ShardsTotal } else { 0.0 }
+                            Set-BHBar $progScan ([int](100 * (($targetIndex - 1) + $fraction) / $targetCount))
+                            $seconds = if ($script:targetWatch) { $script:targetWatch.Elapsed.TotalSeconds } else { 0 }
+                            $rate = if ($seconds -ge 5) { '{0:N0} objects/s' -f ([double]$item.Objects / $seconds) } else { 'measuring speed ...' }
+                            $left = ''
+                            if ($item.Stage -like 'Collecting directory*' -and $item.ShardsDone -ge 3 -and $fraction -ge 0.1 -and $fraction -lt 1) {
+                                $left = '   |   rough time left for this target: about {0} (containers differ in size)' -f (Format-BHSpan ([TimeSpan]::FromSeconds($seconds * (1 - $fraction) / $fraction)))
+                            }
+                            $line1 = "$($script:targetText)  |  $($item.Stage)  |  containers finished: $($item.ShardsDone) of $($item.ShardsTotal)"
+                            $line2 = 'Objects {0:N0}   Edges {1:N0}   Errors {2:N0}   |   {3}   |   this target {4}{5}' -f $item.Objects, $item.Edges, $item.Errors, $rate, (Format-BHSpan $script:targetWatch.Elapsed), $left
+                            Set-BHStatus $lblScanProgress "$line1`r`n$line2" ([System.Drawing.Color]::Black)
                         }
                         'stage' {
-                            Set-BHStatus $lblScanProgress $item.Label $clrWarn
+                            Set-BHBar $progScan $item.Pct
+                            Set-BHStatus $lblScanProgress "$($item.Label)`r`nTotal elapsed $(Format-BHSpan $script:scanStopwatch.Elapsed)" $clrWarn
                         }
                         'result' {
                             $txtScanLog.AppendText("Scan folder: $($item.ScanDir)`r`n")
@@ -989,7 +1082,7 @@ switch ($PSCmdlet.ParameterSetName) {
                     $btnCancelScan.Enabled = $false
                     $progScan.Style = 'Blocks'; $progScan.Value = if ($state -eq 'Completed') { 100 } else { 0 }
                     $finalColor = switch ($state) { 'Completed' { $clrOk }; 'Stopped' { $clrWarn }; default { $clrErr } }
-                    Set-BHStatus $lblScanProgress "Finished: $state" $finalColor
+                    Set-BHStatus $lblScanProgress ("Finished: $state in " + (Format-BHSpan $script:scanStopwatch.Elapsed)) $finalColor
                     if ($jobErrors -and $jobErrors.Count -gt 0) {
                         foreach ($e in $jobErrors) { $txtScanLog.AppendText("ERROR: $e`r`n") }
                     }
@@ -1076,6 +1169,7 @@ switch ($PSCmdlet.ParameterSetName) {
             $txtMergeLog.Clear()
             $progMerge.Style = 'Marquee'; $progMerge.MarqueeAnimationSpeed = 30
             Set-BHStatus $lblMergeProgress 'Merging...' $clrWarn
+            Start-BHOperation 'merge' $txtMergeOut.Text
 
             $sb = {
                 param($srcDir, $scanPaths, $outRoot)
@@ -1084,8 +1178,8 @@ switch ($PSCmdlet.ParameterSetName) {
                 Initialize-BHNative
                 try {
                     Start-BHMerge -ScanPaths $scanPaths -OutputRoot $outRoot -ProgressCallback {
-                        param($phase, $label, $count)
-                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Phase = $phase; Label = $label; Count = $count })
+                        param($phase, $label, $count, $done, $total)
+                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Phase = $phase; Label = $label; Count = $count; Done = $done; Total = $total })
                     } | ForEach-Object {
                         if ($_ -is [string]) { [pscustomobject]@{ Kind = 'result'; MergeDir = $_ } } else { $_ }
                     }
@@ -1097,10 +1191,26 @@ switch ($PSCmdlet.ParameterSetName) {
             }
 
             $script:mergeRunner = New-BHJobRunner -ScriptBlock $sb -ArgumentList @($srcDir, [string[]]$selected, $txtMergeOut.Text) `
+                -OnTick {
+                    $text = Get-BHOperationText 'merge'
+                    if ($text) { Set-BHStatus $lblMergeProgress $text ([System.Drawing.Color]::Black) }
+                } `
                 -OnProgress {
                     param($item)
                     switch ($item.Kind) {
-                        'progress' { Set-BHStatus $lblMergeProgress "$($item.Phase): $($item.Label) ($($item.Count))" ([System.Drawing.Color]::Black) }
+                        'progress' {
+                            if ($item.Phase -eq 'phase') {
+                                $finishedStep = Set-BHOperationProgress 'merge' $item.Label $null
+                                if ($finishedStep) { $txtMergeLog.AppendText("$finishedStep`r`n") }
+                                $txtMergeLog.AppendText(("[{0}] {1}`r`n" -f (Format-BHSpan $script:ops['merge'].Total.Elapsed), $item.Label))
+                                Set-BHBar $progMerge $null
+                            }
+                            else {
+                                $detail = if ($item.Count) { '{0}, {1:N0} records' -f $item.Label, $item.Count } else { [string]$item.Label }
+                                [void](Set-BHOperationProgress 'merge' $null $detail)
+                                Set-BHBar $progMerge $(if ($item.Total -gt 0) { [int](100 * [double]$item.Done / [double]$item.Total) } else { $null })
+                            }
+                        }
                         'result' { $txtMergeLog.AppendText("Merged dataset: $($item.MergeDir)`r`n") }
                         'error' { Set-BHStatus $lblMergeProgress "Failed: $($item.Message)" $clrErr; $txtMergeLog.AppendText("ERROR: $($item.Message)`r`n") }
                     }
@@ -1111,7 +1221,12 @@ switch ($PSCmdlet.ParameterSetName) {
                     $btnCancelMerge.Enabled = $false
                     $progMerge.Style = 'Blocks'; $progMerge.Value = if ($state -eq 'Completed') { 100 } else { 0 }
                     $finalColor = switch ($state) { 'Completed' { $clrOk }; 'Stopped' { $clrWarn }; default { $clrErr } }
-                    Set-BHStatus $lblMergeProgress "Finished: $state" $finalColor
+                    $summary = Complete-BHOperation 'merge'
+                    if ($summary) {
+                        if ($summary.LastStep) { $txtMergeLog.AppendText("$($summary.LastStep)`r`n") }
+                        $txtMergeLog.AppendText("Total time $($summary.Total)`r`n")
+                    }
+                    Set-BHStatus $lblMergeProgress $(if ($summary) { "Finished: $state in $($summary.Total)" } else { "Finished: $state" }) $finalColor
                     if ($jobErrors -and $jobErrors.Count -gt 0) { foreach ($e in $jobErrors) { $txtMergeLog.AppendText("ERROR: $e`r`n") } }
                     Refresh-BHDatasetLists
                 }
@@ -1295,6 +1410,7 @@ switch ($PSCmdlet.ParameterSetName) {
             $txtReportLog.Clear()
             $progReport.Style = 'Marquee'; $progReport.MarqueeAnimationSpeed = 30
             Set-BHStatus $lblReportProgress 'Starting...' $clrWarn
+            Start-BHOperation 'report' $txtReportOut.Text
 
             $sb = {
                 param($srcDir, $datasetPaths, $outDir, $exportCsv, $baselinePath, $settings, $resume)
@@ -1305,7 +1421,7 @@ switch ($PSCmdlet.ParameterSetName) {
                 try {
                     Start-BHReport -DatasetPaths $datasetPaths -OutputDir $outDir -ExportCsv:$exportCsv -BaselineIndexPath $baselinePath `
                         -AnalysisMode $settings.Mode -AnalysisDepth $settings.Depth -AnalysisVisitLimit $settings.Visits -AnalysisSeconds $settings.Seconds -ResumeAnalysis:$resume -ProgressCallback {
-                        param($label) Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Label = $label })
+                        param($label, $meta) Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Label = $label; Transient = [bool]$meta; Pct = $(if ($meta) { $meta.Pct } else { $null }) })
                     } | ForEach-Object {
                         if ($_ -is [string]) {
                             $db = [BH.Native.GraphIndex]::new((Join-Path (Split-Path $_ -Parent) 'graph.sqlite'), $false)
@@ -1321,10 +1437,33 @@ switch ($PSCmdlet.ParameterSetName) {
             }
 
             $script:reportRunner = New-BHJobRunner -ScriptBlock $sb -ArgumentList @($srcDir, [string[]]$selected, $txtReportOut.Text, $chkReportCsv.Checked, $baselinePath, $script:reportAnalysis, $chkResumeAnalysis.Checked) `
+                -OnTick {
+                    $text = Get-BHOperationText 'report'
+                    if ($text) { Set-BHStatus $lblReportProgress $text ([System.Drawing.Color]::Black) }
+                } `
                 -OnProgress {
                     param($item)
                     switch ($item.Kind) {
-                        'progress' { Set-BHStatus $lblReportProgress $item.Label ([System.Drawing.Color]::Black); $txtReportLog.AppendText("$($item.Label)`r`n") }
+                        'progress' {
+                            $elapsed = if ($script:ops['report']) { Format-BHSpan $script:ops['report'].Total.Elapsed } else { '' }
+                            if ($item.Transient) {
+                                # Loading detail: shown in the status line, not added to the log.
+                                [void](Set-BHOperationProgress 'report' $null $item.Label)
+                                Set-BHBar $progReport $item.Pct
+                            }
+                            elseif ($item.Label -like 'Analysis:*') {
+                                # Analysis updates arrive often; keep them as the step detail and in the log.
+                                [void](Set-BHOperationProgress 'report' 'Analyzing exposure paths' $item.Label)
+                                $txtReportLog.AppendText("[$elapsed] $($item.Label)`r`n")
+                                Set-BHBar $progReport $null
+                            }
+                            else {
+                                $finishedStep = Set-BHOperationProgress 'report' $item.Label $null
+                                if ($finishedStep) { $txtReportLog.AppendText("$finishedStep`r`n") }
+                                $txtReportLog.AppendText("[$elapsed] $($item.Label)`r`n")
+                                Set-BHBar $progReport $null
+                            }
+                        }
                         'result' { $script:lastReportPath = $item.ReportPath; $script:lastAnalysisResult = $item; $txtReportLog.AppendText("Report: $($item.ReportPath)`r`nAnalysis: $($item.AnalysisStatus) - $($item.StopReason)`r`n") }
                         'error' { Set-BHStatus $lblReportProgress "Failed: $($item.Message)" $clrErr; $txtReportLog.AppendText("ERROR: $($item.Message)`r`n") }
                     }
@@ -1338,7 +1477,12 @@ switch ($PSCmdlet.ParameterSetName) {
                     $btnCancelReport.Enabled = $false
                     $progReport.Style = 'Blocks'; $progReport.Value = if ($state -eq 'Completed') { 100 } else { 0 }
                     $finalColor = switch ($state) { 'Completed' { $clrOk }; 'Stopped' { $clrWarn }; default { $clrErr } }
-                    Set-BHStatus $lblReportProgress "Finished: $state" $finalColor
+                    $summary = Complete-BHOperation 'report'
+                    if ($summary) {
+                        if ($summary.LastStep) { $txtReportLog.AppendText("$($summary.LastStep)`r`n") }
+                        $txtReportLog.AppendText("Total time $($summary.Total)`r`n")
+                    }
+                    Set-BHStatus $lblReportProgress $(if ($summary) { "Finished: $state in $($summary.Total)" } else { "Finished: $state" }) $finalColor
                     if ($script:lastAnalysisResult) {
                         $color = if ($script:lastAnalysisResult.AnalysisStatus -eq 'Completed') { $clrOk } else { $clrWarn }
                         Set-BHStatus $lblReportProgress "Report ready. Analysis: $($script:lastAnalysisResult.AnalysisStatus)" $color

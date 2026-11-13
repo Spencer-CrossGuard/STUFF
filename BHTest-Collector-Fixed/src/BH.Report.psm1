@@ -156,22 +156,34 @@ function Start-BHReport {
         if ($ProgressCallback) { & $ProgressCallback 'Verifying dataset fingerprint' }
         $fingerprint = Get-BHAnalysisFingerprint $DatasetPaths
         if ($ProgressCallback) { & $ProgressCallback $(if ($ResumeAnalysis) { 'Opening saved analysis snapshot' } else { 'Indexing nodes and edges' }) }
+        # Loading detail goes to the callback as a transient status line (second argument $true).
+        $reportProgress = $ProgressCallback
+        $loadProgress = if ($reportProgress) {
+            {
+                param($label, $done, $total, $records)
+                $pct = if ($total -gt 0) { [int](100 * $done / $total) } else { 0 }
+                & $reportProgress ('{0} | {1}% of the input read | {2:N0} records' -f $label, $pct, $records) ([pscustomobject]@{ Pct = $pct })
+            }.GetNewClosure()
+        }
         $index = if ($ResumeAnalysis) { [BH.Native.GraphIndex]::new($checkpoint, $false, $true) } else { [BH.Native.GraphIndex]::new($workingIndex, $true) }
         try {
             if ($ResumeAnalysis) {
                 if ($index.DiskSourceFingerprint() -ne $fingerprint) { throw 'Dataset fingerprint changed. Resume was rejected; use the original inputs or a new output folder.' }
             }
             else {
-                Import-BHGraphDataset -Index $index -DatasetPaths $DatasetPaths -RetainNodes
+                Import-BHGraphDataset -Index $index -DatasetPaths $DatasetPaths -RetainNodes -OnProgress $loadProgress
                 if ($AnalysisMode -eq 'Deep') {
+                    if ($ProgressCallback) { & $ProgressCallback 'Preparing the saved analysis snapshot (Deep mode)' }
                     $index.PrepareDiskAnalysis((Get-BHExposureTargets $index), $fingerprint)
                     $index.Dispose()
                     Move-Item -LiteralPath $workingIndex -Destination $checkpoint
                     $index = [BH.Native.GraphIndex]::new($checkpoint, $false, $true)
                 }
             }
+            if ($ProgressCallback) { & $ProgressCallback 'Counting objects and relationships (reads the whole index)' }
             foreach ($row in $index.NodeCounts()) { $nodeCounts[$row[0]] = [long]$row[1] }
             foreach ($row in $index.EdgeCounts()) { $edgeCounts[$row[0]] = [long]$row[1] }
+            if ($ProgressCallback) { & $ProgressCallback 'Collecting relationship evidence and group summaries' }
             $reviewBuckets = [string[]]@('acl', 'access', 'observed' | Where-Object { $edgeCounts[$_] -gt 0 })
             $reviewRelationships = @(foreach ($row in $index.ReviewRelationships($reviewBuckets)) {
                 $source = Get-BHGraphNodeDetails $index $row[0]
@@ -193,6 +205,7 @@ function Start-BHReport {
                     @{ Id = $row[0]; Name = $(if ($row[1]) { $row[1] } else { $row[0] }); Type = 'groups' }
                 }
             })
+            if ($ProgressCallback) { & $ProgressCallback 'Ranking permission holders (scans every permission relationship)' }
             $aclHolders = @(foreach ($row in $index.TopAclHolders()) {
                 $name = if ($row[1]) { $row[1] } else { (Get-BHGraphNodeDetails $index $row[0]).n }
                 @{ Id = $row[0]; Name = $name; Type = $(if ($row[2]) { $row[2] } else { '?' }); OutDegree = [long]$row[3] }
@@ -250,6 +263,7 @@ function Start-BHReport {
             }
         }
 
+        if ($ProgressCallback) { & $ProgressCallback 'Building the HTML report and publishing the files' }
         $template = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'report-template.html') -Raw -Encoding UTF8
         $helper = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'report-helper.js') -Raw -Encoding UTF8
         $template = $template.Replace('/*__BH_HELPER__*/', $helper)

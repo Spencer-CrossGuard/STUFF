@@ -157,10 +157,40 @@ namespace BH.Native
             public void Dispose() { sqlite3_finalize(handle); }
         }
 
+        // Optional progress hook: (what is happening, units done, units total, records so far).
+        // Import reports bytes of input files finished; WriteMerged reports steps finished.
+        // It runs on the calling thread, so a PowerShell scriptblock delegate is safe here.
+        public Action<string, long, long, long> Progress;
+
+        private void Report(string label, long done, long total, long records)
+        {
+            Action<string, long, long, long> hook = Progress;
+            if (hook != null) hook(label, done, total, records);
+        }
+
+        // "scan-folder/file" so identical file names from different scans stay distinguishable.
+        private static string ShortName(string path)
+        {
+            string folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "");
+            return string.IsNullOrEmpty(folder) ? Path.GetFileName(path) : folder + "/" + Path.GetFileName(path);
+        }
+
+        private static long SizeOf(string[] files)
+        {
+            long total = 0;
+            foreach (string file in files) total += new FileInfo(file).Length;
+            return total;
+        }
+
         public void Import(string[] paths, string[] kinds, string[] edgePaths, string[] buckets, string[] externalPaths, bool retainNodes)
         {
             if (paths.Length != kinds.Length || edgePaths.Length != buckets.Length)
                 throw new ArgumentException("Every dataset file requires a type.");
+
+            long totalBytes = SizeOf(paths) + SizeOf(edgePaths) + SizeOf(externalPaths);
+            long doneBytes = 0, records = 0;
+            int fileCount = paths.Length + edgePaths.Length + externalPaths.Length, fileNumber = 0;
+            string label;
 
             Execute("BEGIN IMMEDIATE");
             try
@@ -170,9 +200,13 @@ namespace BH.Native
                 {
                     for (int i = 0; i < paths.Length; i++)
                     {
+                        fileNumber++;
+                        label = "Loading objects from " + ShortName(paths[i]) + " (file " + fileNumber + " of " + fileCount + ")";
+                        Report(label, doneBytes, totalBytes, records);
                         foreach (string line in NdjsonReader.Lines(paths[i]))
                         {
                             if (line.Length == 0) continue;
+                            if ((++records & 0xFFFF) == 0) Report(label, doneBytes, totalBytes, records);
                             string id = Required(line, "Id", paths[i]);
                             string dn = JsonRecordReader.ExtractField(line, "Dn");
                             node.Bind(1, id);
@@ -199,6 +233,8 @@ namespace BH.Native
                             string dns = JsonRecordReader.ExtractField(line, "Dns");
                             if (!string.IsNullOrEmpty(dns)) WriteAlias(alias, "SPNHOST:" + dns.ToUpperInvariant(), id);
                         }
+                        doneBytes += new FileInfo(paths[i]).Length;
+                        Report(label, doneBytes, totalBytes, records);
                     }
                 }
                 using (var directEdge = new Statement(this, "INSERT OR IGNORE INTO edges VALUES (?1,?2,?3,?4,0,0,?7)"))
@@ -210,9 +246,13 @@ namespace BH.Native
                 {
                     for (int i = 0; i < edgePaths.Length; i++)
                     {
+                        fileNumber++;
+                        label = "Loading relationships from " + ShortName(edgePaths[i]) + " (file " + fileNumber + " of " + fileCount + ")";
+                        Report(label, doneBytes, totalBytes, records);
                         foreach (string line in NdjsonReader.Lines(edgePaths[i]))
                         {
                             if (line.Length == 0) continue;
+                            if ((++records & 0xFFFF) == 0) Report(label, doneBytes, totalBytes, records);
                             string target = Required(line, "Target", edgePaths[i]);
                             string source = Required(line, "Source", edgePaths[i]);
                             bool targetIsDn = JsonRecordReader.ExtractField(line, "TargetIsDn") == "true";
@@ -231,12 +271,17 @@ namespace BH.Native
                             edge.Read();
                             edge.Reset();
                         }
+                        doneBytes += new FileInfo(edgePaths[i]).Length;
+                        Report(label, doneBytes, totalBytes, records);
                     }
                 }
                 using (var external = new Statement(this, "INSERT OR IGNORE INTO external VALUES (?1,?2,?3)"))
                 {
                     foreach (string path in externalPaths)
                     {
+                        fileNumber++;
+                        label = "Loading external names from " + ShortName(path) + " (file " + fileNumber + " of " + fileCount + ")";
+                        Report(label, doneBytes, totalBytes, records);
                         foreach (string line in NdjsonReader.Lines(path))
                         {
                             if (line.Length == 0) continue;
@@ -246,8 +291,10 @@ namespace BH.Native
                             external.Read();
                             external.Reset();
                         }
+                        doneBytes += new FileInfo(path).Length;
                     }
                 }
+                Report("Saving the loaded data to disk (can take several minutes, no further updates until it finishes)", totalBytes, totalBytes, records);
                 Execute("COMMIT");
             }
             catch
@@ -321,16 +368,28 @@ namespace BH.Native
         public long WriteMerged(string directory, string[] nodeKinds, string[] edgeBuckets, bool compress)
         {
             string suffix = compress ? ".ndjson.gz" : ".ndjson";
+            int totalSteps = nodeKinds.Length + edgeBuckets.Length + 1, step = 0;
+            string label;
+            long rows;
             using (var nodes = new Statement(this, "SELECT record FROM nodes WHERE kind=?1"))
             {
                 foreach (string kind in nodeKinds)
                 {
+                    // Each type is a full pass over the working index, so announce it first.
+                    label = "Writing objects: " + kind + " (step " + (step + 1) + " of " + totalSteps + ")";
+                    Report(label, step, totalSteps, 0);
+                    rows = 0;
                     using (var writer = new NdjsonWriter(Path.Combine(directory, "nodes_" + kind + suffix), false))
                     {
                         nodes.Bind(1, kind);
-                        while (nodes.Read()) writer.WriteLine(nodes.Record(0));
+                        while (nodes.Read())
+                        {
+                            writer.WriteLine(nodes.Record(0));
+                            if ((++rows & 0x3FFF) == 0) Report(label, step, totalSteps, rows);
+                        }
                         nodes.Reset();
                     }
+                    step++;
                 }
             }
             var json = new JsonRecordWriter();
@@ -338,11 +397,15 @@ namespace BH.Native
             {
                 foreach (string bucket in edgeBuckets)
                 {
+                    label = "Writing relationships: " + bucket + " (step " + (step + 1) + " of " + totalSteps + ")";
+                    Report(label, step, totalSteps, 0);
+                    rows = 0;
                     using (var writer = new NdjsonWriter(Path.Combine(directory, "edges_" + bucket + suffix), false))
                     {
                         edges.Bind(1, bucket);
                         while (edges.Read())
                         {
+                            if ((++rows & 0x3FFF) == 0) Report(label, step, totalSteps, rows);
                             string evidence = edges.Text(5);
                             if (evidence != null)
                             {
@@ -357,9 +420,11 @@ namespace BH.Native
                         }
                         edges.Reset();
                     }
+                    step++;
                 }
             }
             long count = 0;
+            Report("Writing external names (step " + (step + 1) + " of " + totalSteps + ")", step, totalSteps, 0);
             using (var external = new Statement(this, "SELECT id,name,kind FROM external"))
             using (var writer = new NdjsonWriter(Path.Combine(directory, "principals_external" + suffix), false))
             {
@@ -369,6 +434,7 @@ namespace BH.Native
                     count++;
                 }
             }
+            Report("Finished writing the merged files", totalSteps, totalSteps, 0);
             return count;
         }
         public List<string[]> TopAclHolders()

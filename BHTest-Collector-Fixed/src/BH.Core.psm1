@@ -1078,6 +1078,7 @@ function Start-BHCollection {
     $workerFailureCount = 0
     $missingDescriptors = 0L
     $nextWorkItem = 0
+    $doneShards = 0
     $workerDispatch = {
         param($Options, $UserName, $Password, $ModuleRoot)
         $ErrorActionPreference = 'Stop'
@@ -1141,10 +1142,11 @@ function Start-BHCollection {
                 }
                 $handle.Shell.Dispose()
                 [void]$handles.Remove($handle)
+                $doneShards++
             }
             if ($ProgressCallback) {
                 $active = [BH.Native.ProgressCounters]::Sum([BH.Native.ProgressCounters[]]@($handles | ForEach-Object { $_.Counters }))
-                & $ProgressCallback ($counters.Objects + $active.Objects) ($counters.Edges + $active.Edges) ($counters.Errors + $active.Errors)
+                & $ProgressCallback ($counters.Objects + $active.Objects) ($counters.Edges + $active.Edges) ($counters.Errors + $active.Errors) $doneShards $workItems.Count 'Collecting directory objects'
             }
             if ($heartbeat.Elapsed.TotalSeconds - $lastHeartbeat -ge 10) {
                 $lastHeartbeat = $heartbeat.Elapsed.TotalSeconds
@@ -1165,6 +1167,7 @@ function Start-BHCollection {
     $endpointError = $null
     if ($CollectEndpoints -and $workerFailureCount -eq 0 -and $counters.Errors -eq 0) {
         Write-BHLog -Message 'Collecting endpoint local groups and logged-on users with the current Windows identity ...'
+        if ($ProgressCallback) { & $ProgressCallback $counters.Objects $counters.Edges $counters.Errors $doneShards $workItems.Count 'Collecting endpoint groups and logons (per-host counts are in the log)' }
         try {
             Import-Module (Join-Path $moduleRoot 'BH.Endpoint.psm1') -DisableNameChecking
             $endpointOptions = @{
@@ -1190,6 +1193,7 @@ function Start-BHCollection {
     $externalResolved = 0
     try {
         if ($ResolveExternalNames -and $workerFailureCount -eq 0 -and $counters.Errors -eq 0) {
+            if ($ProgressCallback) { & $ProgressCallback $counters.Objects $counters.Edges $counters.Errors $doneShards $workItems.Count 'Looking up names for permission holders outside the scanned domain (up to 5 minutes)' }
             $externalResolved = @(Resolve-BHExternalPrincipals -ScanDir $scanDir -Server $Server -Credential $Credential)[-1]
         }
     }
@@ -1283,11 +1287,34 @@ function Get-BHDatasetFiles {
     }
 }
 
+function Set-BHIndexProgress {
+    <#
+        .SYNOPSIS
+        Routes the index's native progress hook to a scriptblock, at most once every
+        2 seconds (a change of step always passes). The scriptblock receives
+        (label, done, total, records). Pass no scriptblock to remove the hook.
+    #>
+    param([BH.Native.GraphIndex] $Index, [scriptblock] $OnProgress)
+    if (-not $OnProgress) { $Index.Progress = $null; return }
+    $state = @{ Last = -2000L; Label = ''; Clock = [System.Diagnostics.Stopwatch]::StartNew() }
+    $Index.Progress = [Action[string, long, long, long]]{
+        param($label, $done, $total, $records)
+        $now = $state.Clock.ElapsedMilliseconds
+        if ($label -ne $state.Label -or ($now - $state.Last) -ge 2000) {
+            $state.Label = $label
+            $state.Last = $now
+            # A display problem must never abort the data load.
+            try { & $OnProgress $label $done $total $records } catch {}
+        }
+    }.GetNewClosure()
+}
+
 function Import-BHGraphDataset {
     param(
         [BH.Native.GraphIndex] $Index,
         [string[]] $DatasetPaths,
-        [switch] $RetainNodes
+        [switch] $RetainNodes,
+        [scriptblock] $OnProgress
     )
 
     $nodePaths = [System.Collections.Generic.List[string]]::new()
@@ -1307,8 +1334,12 @@ function Import-BHGraphDataset {
         }
     }
     if ($nodePaths.Count -eq 0) { throw 'No node datasets were found in the supplied folders.' }
-    $Index.Import($nodePaths.ToArray(), $kinds.ToArray(), $edgePaths.ToArray(), $buckets.ToArray(),
-        @(Get-BHDatasetFiles $DatasetPaths 'principals_external'), [bool]$RetainNodes)
+    Set-BHIndexProgress -Index $Index -OnProgress $OnProgress
+    try {
+        $Index.Import($nodePaths.ToArray(), $kinds.ToArray(), $edgePaths.ToArray(), $buckets.ToArray(),
+            @(Get-BHDatasetFiles $DatasetPaths 'principals_external'), [bool]$RetainNodes)
+    }
+    finally { Set-BHIndexProgress -Index $Index -OnProgress $null }
 }
 
 function Start-BHMerge {
@@ -1329,11 +1360,19 @@ function Start-BHMerge {
     $working = New-Item -ItemType Directory -Path (Join-Path $root.FullName ".$mergeId.tmp")
     $indexPath = Join-Path $working.FullName 'merge.sqlite'
 
+    # Detail updates: (label, records, done, total). 'done' and 'total' are bytes of input
+    # while loading and output steps while writing; the caller only needs their ratio.
+    $mergeProgress = $ProgressCallback
+    $detail = if ($mergeProgress) {
+        { param($label, $done, $total, $records) & $mergeProgress 'detail' $label $records $done $total }.GetNewClosure()
+    }
+
     try {
-        if ($ProgressCallback) { & $ProgressCallback 'phase' 'Indexing nodes and edges' 0 }
+        if ($ProgressCallback) { & $ProgressCallback 'phase' 'Step 1 of 3: Loading into a working index' 0 }
         $index = [BH.Native.GraphIndex]::new($indexPath, $true)
         try {
-            Import-BHGraphDataset -Index $index -DatasetPaths $ScanPaths -RetainNodes
+            Import-BHGraphDataset -Index $index -DatasetPaths $ScanPaths -RetainNodes -OnProgress $detail
+            if ($ProgressCallback) { & $ProgressCallback 'phase' 'Step 2 of 3: Counting (reads the whole working index)' 0 }
             $nodeCounts = [ordered]@{}
             $edgeCounts = [ordered]@{}
             $unresolved = [ordered]@{}
@@ -1343,8 +1382,10 @@ function Start-BHMerge {
             foreach ($row in $index.EdgeCounts()) { $edgeCounts[$row[0]] = [long]$row[1] }
             foreach ($row in $index.UnresolvedCounts()) { $unresolved[$row[0]] = [long]$row[1] }
 
-            if ($ProgressCallback) { & $ProgressCallback 'phase' 'Writing merged dataset' 0 }
+            if ($ProgressCallback) { & $ProgressCallback 'phase' 'Step 3 of 3: Writing merged files (one full pass per type, can be slow)' 0 }
+            Set-BHIndexProgress -Index $index -OnProgress $detail
             $externalCount = $index.WriteMerged($working.FullName, $script:BHNodeTypes, $script:BHEdgeTypes, $CompressOutput)
+            Set-BHIndexProgress -Index $index -OnProgress $null
         }
         finally { $index.Dispose() }
         [IO.File]::Delete($indexPath)

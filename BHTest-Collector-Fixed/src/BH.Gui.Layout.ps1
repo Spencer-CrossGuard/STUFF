@@ -81,7 +81,7 @@ function Set-BHDatasetLayout {
         $Progress, $Status, $Log, $Extra, $Open, $Import, $ExtraWidth = 126, $AnalysisOptions)
 
     $offset = if ($AnalysisOptions) { 1 } else { 0 }
-    $rows = if ($AnalysisOptions) { @(36,40,'57%',40,44,28,'43%') } else { @(36,'57%',40,44,28,'43%') }
+    $rows = if ($AnalysisOptions) { @(36,40,'55%',40,44,46,'45%') } else { @(36,'55%',40,44,46,'45%') }
     $root = New-BHLayout @('100%') $rows 18
     $Page.Controls.Add($root)
     $headingColumns = if ($Import) { @('100%', 155, $ExtraWidth) } else { @('100%', $ExtraWidth) }

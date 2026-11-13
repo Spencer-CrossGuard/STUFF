@@ -9,6 +9,7 @@ $files = @(
     'BH.Gui.ps1'
     'BHTest.Viewer.ps1'
     'Build-Viewer.ps1'
+    'Trace-ObjectAcl.ps1'
     'README.md'
     'src/BH.Analysis.Gui.ps1'
     'src/BH.Analysis.Native.cs'

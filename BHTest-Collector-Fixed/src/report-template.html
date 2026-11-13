@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BHTest | Directory security review</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0c1220;--panel:#131e30;--panel-2:#19273c;--line:#2b3a51;--text:#edf3fc;--muted:#a4b4ca;--accent:#79b3ff;--danger:#ff8796;--warn:#f6c777;--good:#77d9bb}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:90px}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 Segoe UI,Arial,sans-serif}button,input,select{font:inherit}button,a,input,select{outline-offset:4px}button{cursor:pointer;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 12px}button:hover{border-color:var(--accent);background:#223550}button.primary{background:#376cd7;border-color:#5389ec}a{color:var(--accent)}header{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:18px;padding:15px 26px;border-bottom:1px solid var(--line);background:#101a2af5}header h1{font-size:19px;margin:0}.brand{display:flex;align-items:center;gap:12px}.logo{display:grid;place-items:center;background:#3266d0;border-radius:10px;width:38px;height:38px;font-weight:800}header .meta{font-size:11px;color:var(--muted);max-width:510px;overflow-wrap:anywhere}.header-actions{margin-left:auto;display:flex;gap:8px}.shell{display:grid;grid-template-columns:170px minmax(0,1fr) 340px;gap:22px;max-width:1900px;margin:auto;padding:25px 22px}.nav{position:sticky;top:98px;align-self:start}.nav a{display:block;padding:10px 12px;border-radius:8px;color:var(--muted);text-decoration:none;margin-bottom:4px}.nav a:hover{color:var(--text);background:var(--panel)}.eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:700}main{min-width:0;display:flex;flex-direction:column;gap:20px}.intro h2{font-size:30px;letter-spacing:-.03em;margin:3px 0}.intro p{margin:0;color:var(--muted);max-width:720px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.card,section,.helper{background:var(--panel);border:1px solid var(--line);border-radius:12px}.card{padding:16px}.card .n{font-size:27px;font-weight:650}.card .l{font-size:11px;color:var(--muted)}section{padding:20px;scroll-margin-top:95px}section h2{font-size:17px;margin:0 0 8px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.section-head h2{margin:0}.note{font-size:12px;color:var(--muted)}.section-head+.note{margin-top:0}.notice{background:#242b36;border-left:3px solid var(--warn);padding:11px 14px;border-radius:6px;color:#e8d6b3;font-size:12px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}input[type=text],input[type=search],select{border:1px solid var(--line);background:#0e192a;border-radius:8px;color:var(--text);padding:9px 11px;min-width:0}input[type=text],input[type=search]{width:100%}.toolbar input{flex:1;min-width:140px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}th{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.05em}tr:hover td{background:var(--panel-2)}td button{font-size:11px;padding:5px 9px}.table-wrap{overflow:auto;max-height:420px}.pill{display:inline-block;font-size:10px;padding:3px 8px;border:1px solid var(--line);border-radius:20px;background:var(--panel-2);margin:2px}.pill.danger{color:var(--danger);border-color:#684350}.pill.good{color:var(--good);border-color:#305b56}.pill.warn{color:var(--warn)}.search-results{max-height:280px;overflow:auto;margin-top:10px}#egowrap{height:480px;background:#0d1728;border:1px solid var(--line);border-radius:10px;position:relative;overflow:hidden}#egoCanvas{display:block;width:100%;height:100%;cursor:grab}#egoInfo,#egoLegend{position:absolute;background:#111e31ed;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;max-width:300px;pointer-events:none}#egoInfo{top:10px;left:10px}#egoLegend{bottom:10px;left:10px;display:flex;flex-wrap:wrap;gap:8px;max-width:90%}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}.helper{position:sticky;top:98px;align-self:start;max-height:calc(100vh - 120px);overflow:auto;padding:19px}.helper h2{font-size:18px;margin:4px 0 12px}.helper h3{font-size:12px;color:var(--accent);margin:19px 0 5px}.helper p{font-size:13px;margin:5px 0;overflow-wrap:anywhere}.helper .identity{font-family:Consolas,monospace;font-size:10px;color:var(--muted);overflow-wrap:anywhere}.helper .context{padding:10px;background:#0d1728;border-radius:7px;margin-top:12px}.helper hr{border:0;border-top:1px solid var(--line);margin:17px 0}.helper .help-choice{display:block;width:100%;text-align:left;margin:5px 0}.helper ul{padding-left:17px;font-size:12px}.hidden{display:none!important}footer{padding:18px;text-align:center;color:var(--muted);font-size:11px}.selected-row td{background:#203451}.empty{padding:24px;text-align:center;color:var(--muted)}code{overflow-wrap:anywhere}.print-only{display:none}
+.helper-toggle{display:none}@media(min-width:1500px){.shell{grid-template-columns:185px minmax(0,1fr) 370px}}
+@media(max-width:1200px){.shell{grid-template-columns:minmax(0,1fr) 310px}.nav{display:none}.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:850px){header{position:relative;flex-wrap:wrap;padding:14px}.header-actions{margin-left:0}.shell{display:flex;flex-direction:column;padding:14px}.helper{position:relative;top:0;max-height:none;order:-1}.helper-toggle{display:block;margin-bottom:10px}.helper:not(.active) .helper-body{display:none}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.intro h2{font-size:25px}#egowrap{height:360px}.meta{width:100%}}
+@media print{header{position:static}.nav,.header-actions,.helper,.toolbar,td button{display:none!important}.shell{display:block}body{background:white;color:#111}section,.card{break-inside:avoid;background:white;color:#111;border-color:#aaa;margin-bottom:12px}.note,.card .l,th{color:#444}.table-wrap{max-height:none}.print-only{display:block}.grid{grid-template-columns:repeat(4,1fr)}}
+.finding-card{border:1px solid var(--line);border-radius:9px;padding:15px;margin:12px 0;background:#111b2b}.finding-card h3{font-size:16px;margin:9px 0}.finding-heading{display:flex;gap:5px;flex-wrap:wrap}.finding-card p{margin:7px 0}.path-step{position:relative;border-left:2px solid #5284d4;padding:10px 14px 12px 42px;margin:10px 0;background:#101b2b;border-radius:6px}.path-step h3{font-size:14px;margin:0 0 8px}.step-number{position:absolute;left:10px;top:10px;color:var(--accent);font-weight:bold}details{margin:12px 0}summary{cursor:pointer;color:var(--accent);font-size:12px}.helper table{table-layout:fixed}.helper th{width:42%}.helper td{white-space:pre-wrap}.identity{overflow-wrap:anywhere;font:11px Consolas,monospace;color:var(--muted)}#comparisonContent .grid{margin:14px 0}
+#egoCanvas{touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain}#egoLegend{position:static;max-width:none;background:transparent;border:0;padding:12px 0;pointer-events:auto}#egoInfo{max-width:calc(100% - 20px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.graph-toolbar button,.graph-picker select{min-height:44px;min-width:44px}.graph-toolbar output{min-width:48px;text-align:center;color:var(--muted);font-size:12px}.graph-picker{display:flex;align-items:center;gap:8px;flex:1;min-width:170px}.graph-picker select{flex:1;max-width:100%}.graph-selection{min-height:48px;padding:10px 12px;background:var(--panel-2);border-radius:8px;overflow-wrap:anywhere}.graph-heading{flex-wrap:wrap}.graph-heading button{min-height:44px}.graph-toolbar{gap:7px}.graph-selection .note{margin-top:4px}@media(max-width:850px){#egowrap{height:400px}.graph-toolbar button{padding:9px 11px}.graph-toolbar{margin:10px 0}.graph-heading h2{font-size:17px}}
+</style>
+</head>
+<body>
+<header>
+ <div class="brand"><span class="logo">BH</span><div><h1>Directory security review</h1><div class="eyebrow">BHTest / Offline report</div></div></div>
+ <span class="meta" id="metaLine"></span><div class="header-actions"><button id="openGuide">Explain a term</button><button id="printReport">Print report</button></div>
+</header>
+<div class="shell">
+<nav class="nav" aria-label="Report sections"><div class="eyebrow">Workspace</div><a href="#overview">Overview</a><a href="#findings">Prioritized findings</a><a href="#comparison">Snapshot changes</a><a href="#review">Review relationships</a><a href="#graph">Path preview</a><a href="#principals">Principals</a><a href="#search">Find an object</a><a href="#coverage">Collection coverage</a><p class="note">Select a relationship to see its meaning, evidence and next steps.</p></nav>
+<main>
+ <div class="intro" id="overview"><div class="eyebrow">Understand access. Review the evidence.</div><h2>Your directory, explained.</h2><p>See who has access, understand why it matters, and decide what needs attention.</p></div>
+ <div class="grid" id="summaryCards"></div>
+ <div class="notice" id="coverageBanner"></div>
+ <section id="findings"><div class="section-head"><h2>Prioritized exposure candidates</h2><span class="pill">Recorded evidence</span></div><p id="analysisNote" class="note"></p><div class="toolbar"><input id="findingSearch" type="search" aria-label="Filter findings" placeholder="Filter source, target or relationship…"><select id="findingStatus" aria-label="Finding observation status"><option value="all">Current paths</option><option value="Newly observed path">Newly observed</option><option value="Still observed">Still observed</option><option value="No longer observed">No longer observed</option></select></div><div id="findingList"></div><div class="toolbar"><button id="findingPrevious">Previous</button><span id="findingCount" class="note"></span><button id="findingNext">Next</button></div></section>
+ <section id="pathReview" hidden><div class="section-head"><h2 id="pathTitle">Selected path</h2><button id="highlightWholePath">Highlight whole path</button></div><p class="note" id="pathState"></p><div id="pathSteps"></div></section>
+ <section id="comparison"><h2>Changes since the previous snapshot</h2><div id="comparisonContent"></div></section>
+ <section id="review"><div class="section-head"><h2>Review relationships</h2><span class="pill">Evidence sample</span></div><p class="note">Up to 40 permissions, 40 access relationships and 40 inventory facts from the full index, plus the path preview. This is a bounded review sample; review labels indicate capability, not confirmed vulnerabilities.</p><div class="toolbar"><input id="reviewSearch" type="search" aria-label="Filter relationships" placeholder="Filter names or relationships…"><select id="reviewFilter" aria-label="Relationship category"><option value="all">All relationships</option><option value="review">Review first</option><option value="context">Context &amp; inventory</option></select></div><div class="note" id="reviewCount"></div><div class="table-wrap"><table id="reviewTable"><thead><tr><th>Review</th><th>From → To</th><th>Relationship</th><th><span class="note">Details</span></th></tr></thead><tbody></tbody></table></div></section>
+ <section id="graph"><div class="section-head graph-heading"><h2>Paths to privileged targets</h2><button id="restorePreview">Show preview</button></div>
+ <p class="note" id="egoNote"></p>
+ <div class="toolbar graph-toolbar" aria-label="Graph controls"><button id="graphZoomOut" aria-label="Zoom out">−</button><output id="graphZoomValue" aria-live="off">100%</output><button id="graphZoomIn" aria-label="Zoom in">+</button><button id="resetGraph">Fit all</button><button id="graphRead">Read path</button><button id="graphPrevious" aria-label="Previous path node" hidden>Previous</button><button id="graphNext" aria-label="Next path node" hidden>Next</button></div>
+ <p class="note" id="graphHint">Drag to pan; pinch or use +/− to zoom. Tap a node or line to select it.</p>
+ <div id="egowrap" style="display:none"><canvas id="egoCanvas" tabindex="0" role="img" aria-label="Interactive relationship graph. Arrow keys pan, plus and minus zoom, zero fits the graph." aria-describedby="graphHint"></canvas><div id="egoInfo"></div></div>
+ <div id="egoLegend"></div>
+ <div class="graph-selection" id="graphSelection" aria-live="polite"></div>
+ <div class="toolbar graph-toolbar"><label class="graph-picker">Node <select id="graphNodeSelect" aria-label="Select graph node"></select></label><button id="graphExplain" disabled>Explain selection</button></div>
+ <p class="note">Arrow direction follows the recorded relationship. On a phone, scroll the page outside the canvas. Selecting a node keeps the graph in view; use Explain selection for the full helper.</p></section>
+ <section id="principals"><div class="section-head"><h2>Privileged groups</h2><button id="explainTargets">Why these groups?</button></div><div id="hvList"></div><h2 style="margin-top:22px">Principals with the most recorded permissions</h2><p class="note">A large permission count helps choose a review starting point. It does not establish an exposure by itself.</p><table id="aclTable"><thead><tr><th>Principal</th><th>Type</th><th>Permissions</th><th>Details</th></tr></thead><tbody></tbody></table></section>
+ <section id="search"><h2>Find an object</h2><input type="search" id="searchBox" aria-label="Search object names or identifiers" placeholder="Search a name or identifier…"><div class="note" id="searchNote"></div><div class="search-results"><table id="searchTable"><thead><tr><th>Name</th><th>Type</th><th>Identifier</th><th>Details</th></tr></thead><tbody></tbody></table></div></section>
+ <section id="coverage"><div class="section-head"><h2>Collection coverage</h2><button id="explainCoverage">Explain coverage</button></div><p class="note" id="coverageNote"></p><ul class="note" id="coverageNotes" hidden></ul><p class="note">The HTML contains a limited preview. Open <code>graph.sqlite</code> in BHTest's Path Explorer to search every object and find full-dataset shortest paths.</p><p class="note" id="csvNote"></p></section>
+</main>
+<aside class="helper" id="helper" aria-label="Plain-language helper"><div class="eyebrow">Plain-language helper · works offline</div><h2 id="helperTitle" tabindex="-1">Make sense of a relationship</h2><button class="helper-toggle" id="toggleHelper">Show details</button><div class="helper-body"><input id="helpSearch" type="search" aria-label="Find an explanation" placeholder="Try “full control” or “HasSession”…"><div id="helpMatches"></div><div id="helperContent" aria-live="polite"><p class="note">Choose <b>Explain</b> beside a relationship, select a graph node, or search for a term.</p><div class="context"><p>Each explanation covers the meaning, why it is shown, possible impact, and what to verify.</p></div><p class="note">Explanations use built-in guidance and the report's collected evidence.</p></div></div></aside>
+</div>
+<footer>BHTest · Sensitive directory data · An observed relationship needs context before you decide it is a security issue.</footer>
+<script>
+const DATA = /*__BH_DATA__*/;
+/*__BH_HELPER__*/
+/*__BH_FINDINGS__*/
+
+function fmt(n) { return (n ?? 0).toLocaleString(); }
+function escapeText(value) {
+  return String(value ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+}
+
+document.getElementById('metaLine').textContent =
+  'Generated ' + new Date(DATA.GeneratedUtc).toLocaleString() + ' - sources: ' + DATA.Sources.join(', ');
+document.getElementById('csvNote').textContent = DATA.CsvExported
+  ? 'CSV exports of the source rows are available in assets/.'
+  : 'Run the report with -ExportCsv to also write CSV files.';
+if (DATA.UnresolvedMembership) {
+  document.getElementById('coverageNote').textContent =
+    `${fmt(DATA.UnresolvedMembership)} membership edges reference groups outside the supplied dataset. Include those groups to trace paths through them.`;
+}
+if (DATA.CoverageNotes?.length) {
+  const notes = document.getElementById('coverageNotes');
+  for (const text of DATA.CoverageNotes) {
+    const item = document.createElement('li');
+    item.textContent = text;
+    notes.appendChild(item);
+  }
+  notes.hidden = false;
+}
+
+// Summary, tables and the explanation inspector are initialized by the embedded helper.
+initializeReport();
+initializeFindings();
+
+/*__BH_GRAPH__*/
+</script>
+</body>
+</html>

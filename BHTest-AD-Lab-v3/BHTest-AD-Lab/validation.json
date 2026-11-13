@@ -1,0 +1,42 @@
+{
+  "PreparedUtc": "2026-11-12T21:04:22.5527839Z",
+  "Purpose": "Populate an existing isolated Microsoft deployment lab domain",
+  "WindowsPowerShell51LocalChecks": "Passed",
+  "PowerShell7LocalChecks": "Passed",
+  "LiveADApplyTested": false,
+  "Checks": [
+    "Offline Plan and WhatIf",
+    "No-acknowledgment/domain refusal guards",
+    "PowerShell syntax and forbidden command checks",
+    "Unique bounded sAMAccountNames",
+    "Actual .NET ActiveDirectorySecurity ACE serialization",
+    "BHTest native parser: GenericAll, GenericWrite, WriteDacl, WriteOwner, ForceChangePassword, AddMember and DCSync",
+    "Explicit deny suppression",
+    "Documented attribute-specific collector gaps",
+    "In-memory ACL append preservation/idempotence",
+    "In-memory membership cache/preservation/idempotence",
+    "Escaped and pinned object lookup"
+  ],
+  "Files": [
+    {
+      "File": "Setup-BHTestADLab.ps1",
+      "SHA256": "990F80D242CA2DD6ABD4A0821A7B4348EBE15268DAA14557E979D2A82330A20E"
+    },
+    {
+      "File": "Configure-BHTestLabEndpoint.ps1",
+      "SHA256": "F5E9EB072BA3EA952F59084A0A391A52E33706A93D210770E4109800C3B0234B"
+    },
+    {
+      "File": "README.md",
+      "SHA256": "6F040DB60C6A9D2BE435BA939412B000147CD5F39C1260D49A4876CABB658323"
+    },
+    {
+      "File": "tests\\Test-LabScripts.ps1",
+      "SHA256": "15F52535DE8FC203C3F87E04EB4E6F4D7A36609CC32C08AA7BB63D8AA4CF7626"
+    }
+  ],
+  "PackageRevision": 3,
+  "AdsiMemberShadowingRegression": "Passed on PowerShell 5.1 and 7: CLR psbase bypasses a shadowed Options property",
+  "IntegratedCredentialFactoryRegression": "Passed on 5.1 and 7: both real path-only DirectoryEntry factories keep Username NULL without binding",
+  "CleanupErrorPreservationRegression": "Passed on 5.1 and 7: an original LDAP error survives a secondary Dispose error"
+}

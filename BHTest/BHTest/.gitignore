@@ -1,0 +1,3 @@
+# Scan/merge/report output contains real AD data when run for real  -  never commit it.
+BHData/
+*.ndjson

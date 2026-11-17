@@ -1,0 +1,1392 @@
+{
+  "Version": 1,
+  "Topics": [
+    {
+      "Key": "start",
+      "Category": "Using BHTest",
+      "Title": "Start here: read a finding or trace a path",
+      "Summary": "Use Saved findings to review a recorded exposure candidate, Objects & relationships to inspect evidence, and Paths & graph to ask a directed reachability question.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Open the intended completed report. Inspect the source, target, relationship direction and collection window before considering a change."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "The viewer reads a saved snapshot; it does not query AD or apply a recommendation. A candidate is a review lead, not confirmed compromise."
+        }
+      ],
+      "Controls": [
+        "HelpLibrary",
+        "Glossary",
+        "ToggleDetails"
+      ],
+      "Terms": "help introduction F1 glossary offline"
+    },
+    {
+      "Key": "paths",
+      "Category": "Paths and graph",
+      "Title": "Source, target and path direction",
+      "Summary": "An arrow runs from the principal with a modeled capability to the object it can affect. Find path returns the union of all equally short directed routes.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Enter an exact name or identifier. DA resolves Domain Admins only when unambiguous. If a name matches several objects, choose its exact ID. Swap ends reverses the question and the waypoint order."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A table in all-shortest mode is an edge set, not one sequential path. Longer detours are omitted. A domain-control capability may target the domain itself rather than the Domain Admins group."
+        }
+      ],
+      "Controls": [
+        "SourceId",
+        "TargetId",
+        "FindPath",
+        "SwapEnds",
+        "PathSteps"
+      ],
+      "Terms": "DA Domain Admins target corp source target arrows reverse"
+    },
+    {
+      "Key": "waypoints",
+      "Category": "Paths and graph",
+      "Title": "Via 1 and Via 2",
+      "Summary": "Waypoints require the route to visit specified objects in order: Source → Via 1 → Via 2 → Target. Blank waypoints are skipped.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Use waypoints to test a proposed intermediate group or host. Read each leg's result when a leg fails or reaches a work limit."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Each leg retains its shortest alternatives; the combined graph may revisit objects. This does not enumerate all possible simple paths."
+        }
+      ],
+      "Controls": [
+        "ViaOne",
+        "ViaTwo"
+      ]
+    },
+    {
+      "Key": "routes",
+      "Category": "Paths and graph",
+      "Title": "Routes to target: shortest or all connections",
+      "Summary": "Routes searches backwards from the target independently of the source and waypoint boxes.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Choose Target: shortest for edges on shortest routes to the target. Choose all connections to include supported reverse-reachable detours and cycles."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "All connections is not a count of attack scenarios or infinitely repeated cyclic walks. Dense administrator relationships can be expected context."
+        }
+      ],
+      "Controls": [
+        "TargetRoutes",
+        "RouteMode"
+      ]
+    },
+    {
+      "Key": "filters",
+      "Category": "Paths and graph",
+      "Title": "Relationship filters",
+      "Summary": "The checked relationship types determine which capabilities a path query can use.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Start with all types, then narrow the question. Clear-all intentionally permits no relationship types. Check filters when an expected path disappears."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A label being available in a filter does not mean that it was collected, derived or traversable in this snapshot. Inventory facts are not automatically control edges."
+        }
+      ],
+      "Controls": [
+        "PathFilters"
+      ]
+    },
+    {
+      "Key": "budgets",
+      "Category": "Paths and graph",
+      "Title": "Visit, time and display limits",
+      "Summary": "Queries have independent work and display budgets. A visit is an identity examined, not a count of complete routes.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read the result status and any failed waypoint leg. Increase the visit budget or narrow the source/target if work stops early. Cancel stops the active local query."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "VisitLimit, SearchEdgeLimit, timeout, cancellation and a displayed edge limit are incomplete results, not evidence of no path. A bounded preview can be smaller than the stored graph."
+        }
+      ],
+      "Controls": [
+        "VisitLimit",
+        "CancelQuery"
+      ],
+      "Fields": [
+        "Limited",
+        "StopReason",
+        "Visited",
+        "Processed",
+        "Pending",
+        "Status",
+        "MaxDepth"
+      ]
+    },
+    {
+      "Key": "graph",
+      "Category": "Paths and graph",
+      "Title": "Read a dense graph",
+      "Summary": "Select a connection to list its individual relationship types; numbered curves identify parallel permissions. Select a row for the matching explanation.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Drag to pan, use the mouse wheel or +/- to zoom, Fit to see the graph bounds, and Read for readable node labels. Previous/Next select nodes; Inspect opens their properties."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A bundled connection can represent several relationships. Arrow direction matters. Expanding one connection does not discover additional directory facts."
+        }
+      ],
+      "Controls": [
+        "ZoomIn",
+        "ZoomOut",
+        "FitGraph",
+        "ReadPath",
+        "PreviousNode",
+        "NextNode",
+        "InspectGraphNode",
+        "AllGraphRelationships"
+      ]
+    },
+    {
+      "Key": "findings",
+      "Category": "Review findings",
+      "Title": "Saved findings and priority",
+      "Summary": "Saved findings retain representative shortest recorded chains from identities to the selected targets. Priority is a review-ranking heuristic.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Open the path, inspect each capability and its evidence, and validate the actual permissions and service prerequisites. Use on-demand path search for equally short alternatives."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "One saved candidate is not every possible route. Membership-only context is not a new escalation finding. High priority is not an exploitation verdict or a CVSS score."
+        }
+      ],
+      "Controls": [
+        "Findings",
+        "FindingSearch",
+        "SearchFindings",
+        "ResetFindings",
+        "OpenFinding",
+        "FindingObject"
+      ],
+      "Terms": "score high medium priority risk severity",
+      "Fields": [
+        "Score",
+        "Priority",
+        "Reasons",
+        "MissingObjects",
+        "TotalFindings"
+      ]
+    },
+    {
+      "Key": "paging",
+      "Category": "Review findings",
+      "Title": "Pages, filters and report previews",
+      "Summary": "The native viewer pages over saved candidates and collected objects; the HTML report includes bounded previews.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Use the page controls and search the full native index when a name is absent from the HTML preview. Reset search fields if the result count seems unexpected."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Page size, embedded preview size, search-work limits and total saved counts are different quantities. Empty filtered results do not establish an empty dataset."
+        }
+      ],
+      "Controls": [
+        "FindingPrevious",
+        "FindingNext",
+        "ObjectPrevious",
+        "ObjectNext",
+        "RelationshipNext"
+      ]
+    },
+    {
+      "Key": "objects",
+      "Category": "Inspect evidence",
+      "Title": "Object search and navigation",
+      "Summary": "Search matches names and identifiers in the selected index. Inspect shows the retained record and paged incoming or outgoing relationships.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check the SID/GUID rather than relying only on a display name. Use Back/Forward to revisit inspected objects and Source/Target to populate a path query."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A referenced identity may lack a collected object record. Missing properties may mean older data, unsupported collection or unreadable attributes; they are not automatically false."
+        }
+      ],
+      "Controls": [
+        "Objects",
+        "ObjectSearch",
+        "SearchObjects",
+        "ResetObjects",
+        "InspectObject",
+        "ObjectBack",
+        "ObjectForward",
+        "ObjectSource",
+        "ObjectTarget",
+        "Properties",
+        "PropertyHelp"
+      ]
+    },
+    {
+      "Key": "relationships",
+      "Category": "Inspect evidence",
+      "Title": "Incoming versus outgoing relationships",
+      "Summary": "Incoming relationships describe what can affect the inspected object; outgoing relationships describe what that object can affect.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Choose the direction and relationship filter, then select a row to inspect its evidence. Inspect other object follows the opposite endpoint."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A relationship list includes inventory as well as capabilities. Graph relationship can display an inventory observation without making it part of control-path traversal."
+        }
+      ],
+      "Controls": [
+        "Direction",
+        "Relationships",
+        "LoadRelationships",
+        "ExplainRelationship",
+        "GraphRelationship",
+        "InspectOther"
+      ]
+    },
+    {
+      "Key": "continue",
+      "Category": "Paths and graph",
+      "Title": "Continue a long recorded path",
+      "Summary": "Long paths are displayed in segments so the interface stays usable. Continue loads the next segment from the indicated object.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read the shown step range and remaining hop count. Retain every segment if documenting the complete chain."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A displayed or exported segment is not the whole path. Continued on-demand queries search from the continuation point using the selected supported relationships."
+        }
+      ],
+      "Controls": [
+        "ContinuePath"
+      ],
+      "Fields": [
+        "HopCount",
+        "PathLimited",
+        "NextPathId"
+      ]
+    },
+    {
+      "Key": "export",
+      "Category": "Review findings",
+      "Title": "Export a review plan",
+      "Summary": "Export plan writes a local text explanation of the displayed relationships, their evidence, proposed remediation and validation steps.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Verify source/target IDs, waypoint order, segment limits and coverage before sharing it. Tailor proposed changes to the real service owner."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Exporting does not validate a route or perform any AD change. The plan may describe a segment or route edge set rather than one linear chain."
+        }
+      ],
+      "Controls": [
+        "ExportPlan"
+      ]
+    },
+    {
+      "Key": "latest",
+      "Category": "Collection and reports",
+      "Title": "Open latest and saved path rules",
+      "Summary": "Open latest selects a completed report with a matching graph.sqlite. New application code and an old saved analysis can legitimately use different path-rule versions.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Reopen the updated scanner/viewer together. Regenerate the report from retained data when the saved rules differ. Confirm the full index path at the top of the viewer."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Regenerating cannot add missing collection evidence. A new scan is needed for newly collected fields; it is not required merely to recalculate supported paths."
+        }
+      ],
+      "Terms": "outdated latest graph.sqlite stale version package",
+      "Fields": [
+        "PathRules",
+        "CurrentPathRules"
+      ]
+    },
+    {
+      "Key": "collection",
+      "Category": "Collection and reports",
+      "Title": "Read-only collection and DC selection",
+      "Summary": "Collection records directory objects, ACL observations and supported configuration using the selected identity. The DC picker uses available logon-DC information and cached domain-controller suggestions.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Confirm the domain, selected DC, search scope, included OUs and worker status. An unavailable suggested DC should not be treated as a verified connection; use Connect to test access."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Running the launcher as an administrator does not demonstrate ordinary-user coverage. Endpoint/service checks may have separate permission requirements; a skipped or denied check leaves a gap."
+        }
+      ],
+      "Terms": "logon DC cache domain controller LDAP connection permissions OU read only scanner"
+    },
+    {
+      "Key": "scope",
+      "Category": "Collection and reports",
+      "Title": "Scope, missing data and no path",
+      "Summary": "Coverage describes what the scanner could observe, resolve and model in the supplied collection window.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check scan/merge metadata, worker failures, endpoint status, unreadable security descriptors, unresolved IDs, supported relationship kinds and current filters."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "No path found means no route was found in the supported collected graph under this query's limits. It is not evidence that all attack paths are absent."
+        }
+      ],
+      "Terms": "missing hidden broken no path coverage failed worker unresolved"
+    },
+    {
+      "Key": "merge",
+      "Category": "Collection and reports",
+      "Title": "Merging scans and importing SharpHound",
+      "Summary": "Merge deduplicates supported inventory and relationships; import maps supported SharpHound schema 5/6 records into BHTest's format.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Use original consistent snapshots and comparable collection times. Review skipped object types, source collection status and conflict notes after import or merge."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A merge does not make old facts simultaneous or improve permissions. Conflicting GPO, ownership or AD CS prerequisite snapshots suppress affected inferences. Azure/OpenGraph and many BloodHound derivations remain unsupported."
+        }
+      ],
+      "Terms": "zip JSON schemas import merge duplicate conflict snapshot EnrichGroupTypes MaxGroupLookups EnrichmentSeconds read only LDAP group enrichment"
+    },
+    {
+      "Key": "analysis",
+      "Category": "Collection and reports",
+      "Title": "Quick, Deep, checkpoints and cancellation",
+      "Summary": "Quick analysis uses configured depth/work budgets. Deep analysis can continue disk-backed discovery and save a checkpoint for a later resume.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review mode, selected targets, depth/visit/time limits, completion status and checkpoint location. Resume with the same inputs and compatible path rules."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Completed means the supported selected search frontier was exhausted. It does not mean full BloodHound parity or complete collection. A canceled/time-limited analysis can retain partial results."
+        }
+      ],
+      "Terms": "quick deep checkpoint resume frontier cancel completed incomplete"
+    },
+    {
+      "Key": "changes",
+      "Category": "Review findings",
+      "Title": "New, still observed and no longer observed",
+      "Summary": "Snapshot comparison describes whether a modeled chain was observed in the supplied current and baseline data.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check both collection windows, permissions, source scopes and rule versions before attributing a difference to a security change."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "No longer observed can result from collection gaps or different inputs. It does not prove remediation. A newly observed path may have existed before the earlier collection."
+        }
+      ],
+      "Terms": "baseline delta comparison newly observed still observed no longer observed",
+      "Fields": [
+        "Observation",
+        "AddedObjects",
+        "RemovedObjects",
+        "AddedRelationships",
+        "RemovedRelationships",
+        "UnchangedRelationships",
+        "NoLongerObserved"
+      ]
+    },
+    {
+      "Key": "assessment",
+      "Category": "Review findings",
+      "Title": "Supported, conditional, candidate and suppressed",
+      "Summary": "These labels describe a model's evidence state. Supported/candidate means collected prerequisites match a supported rule; conditional means material context remains uncertain.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read the derivation-specific reason and witnesses. Suppressed relationships remain useful observations but are excluded from the affected automatic control projection."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Supported never means full-token effective access or successful exploitation was tested. Raw/limited ownership observations and unsupported configurations must not be read as confirmed control."
+        }
+      ],
+      "Fields": [
+        "Assessment",
+        "Reason",
+        "EffectiveAccessVerified",
+        "CertificateIssuanceVerified",
+        "ServerEnforcementVerified",
+        "EvidenceNote",
+        "PostExportGroupClassification"
+      ],
+      "Terms": "verified supported conditional suppressed candidate confidence"
+    },
+    {
+      "Key": "recommendations",
+      "Category": "Review findings",
+      "Title": "Use remediation guidance safely",
+      "Summary": "Recommendations identify which delegation, membership, configuration or administration practice to review; BHTest applies none of them.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Confirm the business owner, preserve the original setting, narrow the actual unnecessary prerequisite, then rescan alternatives and test legitimate workflows. Use the saved original setting for a scoped rollback if needed."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Do not remove a shared administrator group or reset credentials solely because it appears on a path. Expected administration, service dependencies and inheritance can explain many recorded relationships."
+        }
+      ],
+      "Terms": "fix remediation recommendation rollback validation opsec operational impact"
+    },
+    {
+      "Key": "object:users",
+      "Category": "Object types",
+      "Title": "Users and service identities",
+      "Summary": "A directory user can represent a person, service or managed service account.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review account state, security groups, delegated rights and observed sessions. Distinguish a gMSA/MSA from a conventional user by captured object classes and ownership context."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A user object is not evidence of an active session, a known password or current authentication ability."
+        }
+      ],
+      "Kinds": [
+        "users"
+      ]
+    },
+    {
+      "Key": "object:groups",
+      "Category": "Object types",
+      "Title": "Security and distribution groups",
+      "Summary": "Groups organize principals; security-enabled groups can contribute authorization SIDs to a token.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check SecurityEnabled, nested memberships, membership-management rights and any downstream privileged access."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A name such as Admins does not establish privilege. Unknown/distribution group state is insufficient for the derived membership rules that require a security token."
+        }
+      ],
+      "Kinds": [
+        "groups"
+      ]
+    },
+    {
+      "Key": "object:computers",
+      "Category": "Object types",
+      "Title": "Computer accounts and endpoint observations",
+      "Summary": "A computer account is a directory identity for a device; endpoint access is separate evidence.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review Disabled/AccountStateKnown, SPNs, delegation, key credentials, local access observations and collection time."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Directory control is not the same as verified local administrator execution. Endpoint authorization and availability still matter."
+        }
+      ],
+      "Kinds": [
+        "computers"
+      ]
+    },
+    {
+      "Key": "object:domains",
+      "Category": "Object types",
+      "Title": "Domains and domain-root permissions",
+      "Summary": "A domain is an AD security and naming boundary. Some capabilities such as DCSync and supported ESC1 candidates target the domain itself.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review domain-root ACLs, replication witnesses, trust inventory and captured policy context."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A path ending at the domain need not pass through the Domain Admins group. Unmodeled trust relationships do not connect domains automatically."
+        }
+      ],
+      "Kinds": [
+        "domains"
+      ]
+    },
+    {
+      "Key": "object:ous",
+      "Category": "Object types",
+      "Title": "OUs and directory containers",
+      "Summary": "Containers organize objects and may hold delegated ACLs or policy links.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Confirm the actual object class and distinguished-name containment. Review inherited ACLs and supported GPO scope."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Containment alone grants no control of a child. Not every container is an organizational unit or a valid GPO scope."
+        }
+      ],
+      "Kinds": [
+        "ous"
+      ]
+    },
+    {
+      "Key": "object:gpos",
+      "Category": "Object types",
+      "Title": "Group Policy objects",
+      "Summary": "A GPO has a directory object and policy content in SYSVOL, with separate edit, scope and client-processing conditions.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review GPO ACLs, link settings, filters, flags and supported computer scope; separately validate SYSVOL and effective policy."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "BHTest's GPOAppliesTo model covers supported computer scope only. User/site/loopback policy and actual policy execution are not derived."
+        }
+      ],
+      "Kinds": [
+        "gpos"
+      ]
+    },
+    {
+      "Key": "object:certtemplates",
+      "Category": "Object types",
+      "Title": "Certificate templates",
+      "Summary": "Templates describe certificate purposes, naming, issuance requirements and enrollment permissions.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Use the AD CS review and inspect the exact template's flags, purposes, approval/signatures, publication and enrollment grants."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A matched template configuration alone does not establish ESC1 or certificate issuance."
+        }
+      ],
+      "Kinds": [
+        "certtemplates"
+      ]
+    },
+    {
+      "Key": "object:enterprisecas",
+      "Category": "Object types",
+      "Title": "Enterprise certificate authorities",
+      "Summary": "An enterprise CA publishes templates and may issue certificates. Its directory object and CA service have different permission sources.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check CAServicePermissionsCollected, imported service ACE summaries, HostingComputer, publication, certificate chain and target-domain trust."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Native directory ACL inventory does not prove CA service enrollment or management. Supported ESC1 derivation currently requires imported direct-root evidence."
+        }
+      ],
+      "Kinds": [
+        "enterprisecas"
+      ]
+    },
+    {
+      "Key": "object:rootcas",
+      "Category": "Object types",
+      "Title": "Root CA trust objects",
+      "Summary": "RootCA records describe configured directory trust anchors associated with a domain.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check the captured DomainSid, certificate thumbprint and chain, and match them to the exact CA and target domain."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A thumbprint match models collected trust inventory; it does not validate a live certificate, expiry, revocation or cryptographic signatures."
+        }
+      ],
+      "Kinds": [
+        "rootcas"
+      ]
+    },
+    {
+      "Key": "object:aiacas",
+      "Category": "Object types",
+      "Title": "Intermediate/AIA certificate authorities",
+      "Summary": "AIA CA records preserve certificate authority inventory used by broader certificate-chain analysis.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review certificate identity and the complete ordered issuer chain against the target domain's configured trust."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "BHTest does not yet derive intermediate-chain ESC paths. Presence in AIA alone does not establish domain authentication trust."
+        }
+      ],
+      "Kinds": [
+        "aiacas"
+      ]
+    },
+    {
+      "Key": "object:ntauthstores",
+      "Category": "Object types",
+      "Title": "NTAuth certificate stores",
+      "Summary": "An NTAuthStore records CA certificate fingerprints designated for domain authentication trust.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Match its captured domain and certificate fingerprints to the exact publishing CA and RootCA evidence."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "NTAuth membership alone is insufficient for ESC1. Enrollment, template, trust-anchor and supported host prerequisites must also hold."
+        }
+      ],
+      "Kinds": [
+        "ntauthstores"
+      ]
+    },
+    {
+      "Key": "object:issuancepolicies",
+      "Category": "Object types",
+      "Title": "Certificate issuance policies",
+      "Summary": "Issuance-policy OIDs and optional linked groups provide context for certificate issuance and policy review.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Inspect the OID, linked group, template issuance-policy references and actual supported rule prerequisites."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "HasIssuancePolicy and OIDGroupLink are inventory; BHTest does not derive ESC13 group membership from them."
+        }
+      ],
+      "Kinds": [
+        "issuancepolicies"
+      ]
+    },
+    {
+      "Key": "object:trusts",
+      "Category": "Object types",
+      "Title": "Domain trust inventory",
+      "Summary": "A trust record describes direction, type, attributes and a remote-domain identity.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Interpret direction from the source domain, validate the intended trust relationship, SID filtering and relevant server policy separately."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "BHTest retains trust inventory but does not implement general effective trust traversal or every trust-based BloodHound edge."
+        }
+      ],
+      "Kinds": [
+        "trusts"
+      ]
+    },
+    {
+      "Key": "object:sites",
+      "Category": "Object types",
+      "Title": "AD sites",
+      "Summary": "Sites describe directory topology and can influence service/DC selection and policy behavior.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review related servers and subnets, site configuration and the actual objects in scope."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Site location alone is not a permission, session or endpoint connection. Site GPO applicability is outside the supported scope model."
+        }
+      ],
+      "Kinds": [
+        "sites"
+      ]
+    },
+    {
+      "Key": "object:siteservers",
+      "Category": "Object types",
+      "Title": "Directory site servers",
+      "Summary": "A server object links directory site topology to a referenced computer.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review ServerReferenceDn and the parent site, resolving the actual computer before interpreting endpoint access."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "The server inventory object is distinct from the running computer and from its local authorization."
+        }
+      ],
+      "Kinds": [
+        "siteservers"
+      ]
+    },
+    {
+      "Key": "object:sitesubnets",
+      "Category": "Object types",
+      "Title": "Directory site subnets",
+      "Summary": "A subnet object associates a network range with an AD site.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review SiteDn and the configured subnet/site relationship with the directory owner."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A configured subnet association does not prove current host placement, routing or a privilege relationship."
+        }
+      ],
+      "Kinds": [
+        "sitesubnets"
+      ]
+    },
+    {
+      "Key": "object:external",
+      "Category": "Object types",
+      "Title": "Referenced or unresolved identities",
+      "Summary": "Some SIDs, DNs, SPN hosts or foreign principals appear only as relationship endpoints.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Collect or resolve the referenced object and confirm its stable identity before using names as evidence."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Missing object details reduce confidence and can prevent path resolution. An unresolved reference is not a fabricated user or confirmed control path."
+        }
+      ],
+      "Kinds": [
+        "external",
+        "?"
+      ]
+    },
+    {
+      "Key": "field:identity",
+      "Category": "Object properties",
+      "Title": "IDs, names and directory location",
+      "Summary": "Id is BHTest's stable graph identifier; Sid/Guid are captured directory identifiers, Dn is a directory location, and names are display/search aids.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Use exact IDs for ambiguous names. A renamed object can keep its SID/GUID while its name or DN changes."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A DN can move and a display name can be duplicated. Do not infer an object's permissions or class from its name."
+        }
+      ],
+      "Fields": [
+        "Id",
+        "Sid",
+        "Guid",
+        "Dn",
+        "Name",
+        "SamAccountName",
+        "TemplateName",
+        "TemplateAlias"
+      ]
+    },
+    {
+      "Key": "field:classes",
+      "Category": "Object properties",
+      "Title": "Object class and directory type",
+      "Summary": "ObjectClasses retains the directory schema classes. Some managed service identities require computer-derived ownership restrictions even when displayed under users.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check the most specific captured class and derived-type context before interpreting attributes, containment or ownership."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "The viewer's display bucket is not a complete schema classification. Unsupported or conflicting classes suppress some projections."
+        }
+      ],
+      "Fields": [
+        "ObjectClasses",
+        "GpoSomType",
+        "OwnershipComputerDerived"
+      ]
+    },
+    {
+      "Key": "field:state",
+      "Category": "Object properties",
+      "Title": "Enabled state and UAC",
+      "Summary": "Disabled records the captured account state. AccountStateKnown distinguishes a readable account-control value from unavailable information; Uac is the underlying flag mask.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Interpret individual flags and collection time. A null/missing state is unknown and must not be shown as enabled."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Enabled does not prove successful logon, a valid credential, service reachability or absence of authentication restrictions."
+        }
+      ],
+      "Fields": [
+        "Disabled",
+        "AccountStateKnown",
+        "Uac"
+      ]
+    },
+    {
+      "Key": "field:host",
+      "Category": "Object properties",
+      "Title": "Host, DNS and service names",
+      "Summary": "DNS and SPNs help associate services with computer identities; HostingComputer identifies the exact imported CA host. OS is a captured inventory description.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Resolve stable IDs and check aliases, duplicate SPNs and collection time. A CA's host evidence must qualify that same CA."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Ambiguous host aliases are not resolved arbitrarily. A DNS/SPN name is not proof that a service is running or reachable."
+        }
+      ],
+      "Fields": [
+        "Dns",
+        "Os",
+        "Spns",
+        "HostingComputer",
+        "ServerReferenceDn",
+        "SiteDn"
+      ]
+    },
+    {
+      "Key": "field:domain",
+      "Category": "Object properties",
+      "Title": "Domain association",
+      "Summary": "These identify the object's captured domain or a trust's remote domain; names and SIDs serve different roles.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Match domain SIDs when comparing CA/root/NTAuth or policy evidence. Verify which end of a trust is being described."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Domain membership alone does not establish a usable trust path or cross-domain authorization."
+        }
+      ],
+      "Fields": [
+        "DomainSid",
+        "DomainName",
+        "TargetDomainSid",
+        "FlatName"
+      ]
+    },
+    {
+      "Key": "field:group",
+      "Category": "Object properties",
+      "Title": "Security-enabled group state",
+      "Summary": "True identifies a captured security group; false identifies a group that does not supply a security token for the relevant model. Missing means unknown.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read group type from current collection rather than assuming all imported groups are security-enabled."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Several derived GPO, ownership, replication and ESC1 membership rules require a known security-enabled group. Older SharpHound exports may omit this fact."
+        },
+        {
+          "Title": "Optional import enrichment",
+          "Text": "Read missing group types (import) uses the DC and identity from the connection tab. CLI: -ImportSharpHound -EnrichGroupTypes -Server <DC>. Only absent classifications are supplemented, by binary SID with returned objectSid/objectGUID and domain identity checks. Known values are preserved; failed, ambiguous and out-of-domain lookups remain unknown."
+        },
+        {
+          "Title": "Evidence times",
+          "Text": "GroupTypeSource ReadOnlyLDAP identifies a post-export observation, with the DC, returned identity, groupType, read time and change markers retained. Original permissions and memberships are not revalidated. Such data does not make an old export a consistent live snapshot; affected candidates require current validation."
+        },
+        {
+          "Title": "Original import state",
+          "Text": "GroupTypeImportState records Known, Missing or Malformed input classification. SecurityEnabledRaw preserves an invalid source value for inspection; it is not used as a Boolean. Optional LDAP enrichment supplements unknown state without modifying the original export."
+        },
+        {
+          "Title": "Enrichment result codes",
+          "Text": "Resolved means a verified exact-SID reply supplied a supported groupType. KnownInExport preserves an existing imported classification. OutsideSelectedDomain refuses a foreign or non-domain SID. Unavailable means connection/domain verification failed. NotFound, Ambiguous, MissingIdentity, IdentityMismatch, UnreadableGroupType, UnsupportedGroupType and LookupFailed leave state unknown. WorkLimit stops further lookups. uSNChanged and whenChanged are object change markers on the selected DC, not groupType-specific history or proof of replication convergence."
+        }
+      ],
+      "Fields": [
+        "SecurityEnabled",
+        "GroupType",
+        "GroupTypeSource",
+        "GroupTypeServer",
+        "GroupTypeObservedUtc",
+        "GroupTypeObservedSid",
+        "GroupTypeObservedGuid",
+        "GroupTypeObservedDn",
+        "GroupTypeUsnChanged",
+        "GroupTypeWhenChanged",
+        "GroupTypeQueriedUtc",
+        "GroupTypeEnrichmentStatus",
+        "GroupTypeImportState",
+        "SecurityEnabledRaw"
+      ]
+    },
+    {
+      "Key": "field:delegation",
+      "Category": "Object properties",
+      "Title": "Delegation flags",
+      "Summary": "These flags describe account delegation configuration. Protocol transition and unconstrained delegation are different settings.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Combine flags with exact allowed-service targets or resource-based delegation evidence, account restrictions and current authentication controls."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A flag alone does not establish a currently usable delegation chain or successful impersonation."
+        }
+      ],
+      "Fields": [
+        "ProtocolTransition",
+        "UnconstrainedDelegation"
+      ]
+    },
+    {
+      "Key": "field:ownership",
+      "Category": "Object properties",
+      "Title": "Owner and OWNER RIGHTS context",
+      "Summary": "OwnerSid identifies the captured owner. OWNER RIGHTS ACEs, applicable WRITE_DAC grants and relevant denies affect whether ownership is projected as control.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read the assessment and descriptor-analysis note; distinguish OwnsRaw/WriteOwnerRaw observations from supported or conditional projections."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Missing descriptors, unsupported ACEs or relevant denies can suppress inference. OWNER RIGHTS being present does not mean the owner has unrestricted control."
+        }
+      ],
+      "Fields": [
+        "OwnerSid",
+        "OwnerRightsPresent",
+        "OwnerRightsWriteDacl",
+        "OwnershipAnalysisKnown",
+        "OwnershipWriteDaclDeny",
+        "OwnershipNote",
+        "OwnershipMetadataVersion"
+      ]
+    },
+    {
+      "Key": "field:ownerpolicy",
+      "Category": "Object properties",
+      "Title": "Captured ownership policy",
+      "Summary": "Captured directory-policy context refines computer/MSA/gMSA ownership behavior: Allow, Block, Restricted, Default or Unknown.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review the exact mode, target type, same-domain administrator exception evidence and server-enforcement limitations in OWNERSHIP.md."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Default and Unknown are not explicit Allow. Restricted modes need operation-specific evaluation; cross-domain administrator exceptions are not fully modeled."
+        }
+      ],
+      "Fields": [
+        "OwnerPolicyMode",
+        "OwnerDomainPolicyMode"
+      ]
+    },
+    {
+      "Key": "field:gpolink",
+      "Category": "Object properties",
+      "Title": "GPO link and inheritance settings",
+      "Summary": "Link options describe a policy link's enabled/enforced state. GpOptions captures scope inheritance configuration, not a permission grant.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review the link direction, actual scope class, parent chain, block inheritance and enforced links together."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Enforced does not bypass every policy/security condition. GPLink inventory alone is not a traversable policy-control path."
+        }
+      ],
+      "Fields": [
+        "LinkOptions",
+        "Enabled",
+        "Enforced",
+        "GpOptions",
+        "GpoLinkMetadataVersion"
+      ]
+    },
+    {
+      "Key": "field:gpoconfig",
+      "Category": "Object properties",
+      "Title": "GPO settings and collection version",
+      "Summary": "These capture policy enablement/version, directory-supported functionality, SYSVOL location and WMI filtering.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Validate supported computer policy flags, no unresolved WMI filtering, and consistency of directory/SYSVOL versions before assessing practical effect."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A SYSVOL path is a location, not proof of file write access. WMI/client processing, policy contents and resultant policy are not evaluated."
+        }
+      ],
+      "Fields": [
+        "GpoFlags",
+        "GpoFunctionalityVersion",
+        "GpoFileSysPath",
+        "GpoVersionNumber",
+        "GpoWmiFilter",
+        "GpoMetadataVersion"
+      ]
+    },
+    {
+      "Key": "field:gposecurity",
+      "Category": "Object properties",
+      "Title": "GPO Read/Apply evidence",
+      "Summary": "These summaries describe supported Read and Apply permissions from the collected GPO security descriptor.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Inspect the descriptor note and separate membership witnesses for the target computer's Read and Apply prerequisites."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Unknown/unsupported ACLs, relevant denies or conflicting facts suppress modeled applicability. Summary arrays do not establish complete effective-token access."
+        }
+      ],
+      "Fields": [
+        "GpoSecurityKnown",
+        "GpoSecurityNote",
+        "GpoReaders",
+        "GpoAppliers"
+      ]
+    },
+    {
+      "Key": "field:template",
+      "Category": "Object properties",
+      "Title": "Certificate naming and issuance flags",
+      "Summary": "Template naming and enrollment masks describe requester-supplied subject and approval behavior; signatures/schema affect issuance requirements. Flags on other object classes have class-specific meanings.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Use the object's actual class. In the template review, subject bit 0x1 differs from SAN-only naming, approval uses bit 0x2, and schema 1 differs from later signature handling."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Do not interpret a generic Flags value as a template flag mask on every class. Missing, malformed or future schema values remain unknown."
+        }
+      ],
+      "Fields": [
+        "CertificateNameFlags",
+        "EnrollmentFlags",
+        "RequiredSignatures",
+        "SchemaVersion",
+        "Flags"
+      ]
+    },
+    {
+      "Key": "field:purposes",
+      "Category": "Object properties",
+      "Title": "Certificate purposes and policies",
+      "Summary": "EKUs/application policies describe intended certificate purposes; issuance-policy OIDs and optional group links are distinct metadata.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Review purpose restrictions, application-policy interactions and issuance requirements together with publication and enrollment rights."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Empty purpose lists may reflect missing/unreadable data and are not automatically unrestricted. An issuance-policy group link does not itself grant membership."
+        }
+      ],
+      "Fields": [
+        "ExtendedKeyUsage",
+        "ApplicationPolicies",
+        "IssuancePolicyOids",
+        "PolicyOid",
+        "LinkedGroupDn"
+      ]
+    },
+    {
+      "Key": "field:caservice",
+      "Category": "Object properties",
+      "Title": "CA-service permissions and provenance",
+      "Summary": "CA-service ACE summaries come from a successful supplied SharpHound CASecurity result. Directory-object ACEs are kept separately.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Check successful collection, failure text, right names, trustees and the exact CA identity. ESC1 requires service Enroll on the same publishing CA."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Directory Enroll/ManageCA observations cannot substitute for actual service evidence. A summarized allow ACE still needs full-token validation."
+        }
+      ],
+      "Fields": [
+        "CAServicePermissionsCollected",
+        "CAServicePermissionsFailure",
+        "AdcsServiceAces",
+        "AdcsDirectoryAces"
+      ]
+    },
+    {
+      "Key": "field:certtrust",
+      "Category": "Object properties",
+      "Title": "Certificate chains and thumbprints",
+      "Summary": "Thumbprints identify certificates in the collected inventory; CertChain is ordered, while NTAuth stores list trusted certificate identities.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Match CA, RootCA and NTAuth fingerprints in the same supported target-domain context; inspect the exact CA's host separately."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Current ESC1 derivation supports imported direct-root chains only. A fingerprint is public identity metadata, not a private key or proof of current certificate validity."
+        }
+      ],
+      "Fields": [
+        "CertChain",
+        "CertThumbprint",
+        "CertThumbprints"
+      ]
+    },
+    {
+      "Key": "field:adcsmeta",
+      "Category": "Object properties",
+      "Title": "AD CS capture state and denies",
+      "Summary": "These retain the source/schema marker, reported deny counts and explicit imported template prerequisites used by supported AD CS rules.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Distinguish a captured false value from an omitted property. Review contradiction/conflict notes and original exported records."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Version/source markers describe the parser's evidence shape; they do not attest that current CA or domain authentication enforcement was tested."
+        }
+      ],
+      "Fields": [
+        "AdcsMetadataVersion",
+        "AdcsMetadataSource",
+        "AdcsExplicitDenyCount",
+        "AdcsInheritedDenyCount",
+        "AdcsRequiresManagerApproval",
+        "AdcsEnrolleeSuppliesSubject",
+        "AdcsAuthenticationEnabled"
+      ]
+    },
+    {
+      "Key": "field:publication",
+      "Category": "Object properties",
+      "Title": "Published certificate templates",
+      "Summary": "The CA directory object lists which templates it publishes. Imported publication is also retained as a template-to-CA observation.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Match the template's stable identity or validated alias to the exact publishing CA."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Publication does not grant enrollment and does not establish that requests will be issued."
+        }
+      ],
+      "Fields": [
+        "PublishedTemplates"
+      ]
+    },
+    {
+      "Key": "field:trust",
+      "Category": "Object properties",
+      "Title": "Trust direction, type and attributes",
+      "Summary": "These are raw directory trust configuration values and flags describing the recorded trust object.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Interpret direction relative to the source domain and validate the relevant forest/domain policy and SID filtering separately."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "BHTest does not translate these fields into complete trust-based privilege traversal. A trust inventory row alone is not an attack path."
+        }
+      ],
+      "Fields": [
+        "TrustDirection",
+        "TrustType",
+        "TrustAttributes"
+      ]
+    },
+    {
+      "Key": "field:edge",
+      "Category": "Object properties",
+      "Title": "Relationship endpoints and evidence source",
+      "Summary": "Source/Target describe the directed relationship; endpoint DN flags indicate identities needing resolution. Derivation names a modeled projection, while EvidenceSource/Authority identify provenance.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read the relationship type and its source-specific explanation. Match stable endpoints and verify whether the evidence is directory, endpoint, service, imported or derived."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A relationship label can appear in inventory without being traversable. Verified-source flags do not establish full-token effective access or successful execution."
+        }
+      ],
+      "Fields": [
+        "Source",
+        "Target",
+        "EdgeType",
+        "SourceIsDn",
+        "TargetIsDn",
+        "Derivation",
+        "EvidenceSource",
+        "Authority",
+        "ServicePermissionVerified"
+      ]
+    },
+    {
+      "Key": "field:ace",
+      "Category": "Object properties",
+      "Title": "Captured ACE summaries",
+      "Summary": "An ACE summary identifies a trustee, a classified right, reported allow/deny context and inheritance state.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Inspect the original descriptor/source when exact applicability matters. Locate the ancestor where an inherited grant originates rather than editing an unrelated explicit ACE."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "A summary is not a complete effective-access calculation. Inherit-only, object class/property GUIDs, denies and group token conditions can change applicability."
+        }
+      ],
+      "Fields": [
+        "PrincipalSID",
+        "PrincipalType",
+        "RightName",
+        "AccessType",
+        "IsInherited"
+      ]
+    },
+    {
+      "Key": "field:conflicts",
+      "Category": "Object properties",
+      "Title": "Conflicting captured evidence",
+      "Summary": "A conflict marker records incompatible prerequisite facts across supplied snapshots and survives supported merge round trips.",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Return to the original scan folders, compare collection times/scope and collect a consistent current snapshot where needed."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Merging does not justify selecting only the most permissive value. A conflict can suppress a projection without proving that the real capability is denied."
+        }
+      ],
+      "Fields": [
+        "AdcsEvidenceConflict",
+        "OwnershipEvidenceConflict",
+        "GpoEvidenceConflict",
+        "GpoLinkEvidenceConflict"
+      ]
+    },
+    {
+      "Key": "field:witness",
+      "Category": "Object properties",
+      "Title": "Membership and scope witnesses",
+      "Summary": "A witness records a supporting chain of captured facts used by a derivation, rather than the complete effective token or every possible route.",
+      "Fields": [
+        "GetChangesMembership",
+        "GetChangesAllMembership",
+        "TemplateMembership",
+        "CAServiceMembership",
+        "ReadMembership",
+        "ApplyMembership",
+        "ContainmentChain",
+        "AdminMembership",
+        "WitnessLimited"
+      ],
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Follow each chain from the source toward its grant trustee or scope root. DCSync, GPO and ESC1 can require distinct prerequisites reached through different memberships. Confirm that all witnesses refer to the same modeled target and supported rule."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "Witness arrays are bounded previews, generally up to 64 objects. A preview can omit later entries; consult the graph and collection data for the full chain. A witness is not evidence that an operation succeeded or that deny rules were fully evaluated."
+        }
+      ]
+    },
+    {
+      "Key": "field:composition",
+      "Category": "Object properties",
+      "Title": "Derived-rule identities and grant provenance",
+      "Summary": "These fields identify which exact template, CA, trust objects, scope root or grant trustee supplied the modeled prerequisites.",
+      "Fields": [
+        "Template",
+        "EnterpriseCA",
+        "RootCA",
+        "NTAuthStore",
+        "TemplateGrant",
+        "CAServiceGrant",
+        "TemplateRight",
+        "CAServiceRight",
+        "LinkRoot",
+        "PolicySource"
+      ],
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Match stable IDs to the inspected objects. ESC1 uses the same publishing CA for template and service enrollment, with root and NTAuth trust in the same target domain. GPO LinkRoot and ownership PolicySource describe different rule-specific context."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "One derived edge can retain one representative qualifying composition; BHTest does not expand every alternate CA/template composition. Grant provenance and captured policy are modeling evidence, not live execution or complete effective access."
+        }
+      ]
+    },
+    {
+      "Key": "unsupported",
+      "Category": "Collection and reports",
+      "Title": "Unsupported BloodHound features and unfamiliar labels",
+      "Summary": "Help coverage is separate from collection and path-rule support. BHTest does not implement every BloodHound relationship, derivation, platform or query.",
+      "Terms": "GoldenCert CoerceToTGT SyncLAPSPassword ADCSESC3 ADCSESC4 ADCSESC6a ADCSESC6b ADCSESC9a ADCSESC9b ADCSESC10a ADCSESC10b ADCSESC13 ADCSESC16 HasTrustKeys SameForestTrust ProtectAdminGroups Azure OpenGraph CoerceAndRelayNTLMToSMB CoerceAndRelayNTLMToADCS CoerceAndRelayNTLMToADCSRPC CoerceAndRelayNTLMToLDAP CoerceAndRelayNTLMToLDAPS WriteAltSecurityIdentities WritePublicInformation ServerIs DCFor SpoofSIDHistory AbuseTGTDelegation SyncedToADUser",
+      "Sections": [
+        {
+          "Title": "What to check",
+          "Text": "Read PATH-PARITY.md and the GPO, ownership and AD CS scope notes for current prerequisites and limits. Check the actual imported bucket, derivation, identity resolution and query filters before expecting a relationship to participate in a route."
+        },
+        {
+          "Title": "Limits and interpretation",
+          "Text": "An imported unfamiliar label may be preserved as inventory without being traversed. Adding help or selecting a glossary entry does not enable that capability. Consult the original BloodHound documentation for features outside the supported model."
+        }
+      ]
+    }
+  ]
+}

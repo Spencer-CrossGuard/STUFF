@@ -1,0 +1,1760 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+BH -- single entry point for the AD attack-path auditor: launches the
+WinForms GUI by default, or runs one headless action (-Scan / -Merge /
+-Report) for scripting/scheduling.
+
+.EXAMPLE
+.\BH.Gui.ps1
+Launches the GUI (Scan / Merge / Report tabs).
+
+.EXAMPLE
+.\BH.Gui.ps1 -Scan -BaseDn 'OU=Site-A,DC=corp,DC=local' -Server 'dc01.corp.local' -OutputRoot 'C:\BH\scans'
+
+.EXAMPLE
+.\BH.Gui.ps1 -Merge -ScanPaths 'C:\BH\scans\scan-...-A','C:\BH\scans\scan-...-B' -MergeOutputRoot 'C:\BH\merged'
+
+.EXAMPLE
+.\BH.Gui.ps1 -Report -DatasetPaths 'C:\BH\merged\merged-...' -ReportOutputDir 'C:\BH\reports\latest'
+#>
+[CmdletBinding(DefaultParameterSetName = 'Gui')]
+param(
+    [Parameter(ParameterSetName = 'Gui')] [switch] $Gui,
+    [string] $DataRoot,
+
+    [Parameter(ParameterSetName = 'Run', Mandatory)] [switch] $Run,
+    [Parameter(ParameterSetName = 'Scan', Mandatory)] [switch] $Scan,
+    [Parameter(ParameterSetName = 'Run', Mandatory)] [Parameter(ParameterSetName = 'Scan', Mandatory)] [string] $BaseDn,
+    [Parameter(ParameterSetName = 'SharpHound')] [Parameter(ParameterSetName = 'ResolveNames', Mandatory)] [Parameter(ParameterSetName = 'Run', Mandatory)] [Parameter(ParameterSetName = 'Scan', Mandatory)] [string] $Server,
+    [Parameter(ParameterSetName = 'Scan', Mandatory)] [string] $OutputRoot,
+    [Parameter(ParameterSetName = 'SharpHound')] [Parameter(ParameterSetName = 'ResolveNames')] [Parameter(ParameterSetName = 'Gui')] [Parameter(ParameterSetName = 'Run')] [Parameter(ParameterSetName = 'Scan')] [System.Management.Automation.PSCredential] $Credential,
+    [Parameter(ParameterSetName = 'Run')] [Parameter(ParameterSetName = 'Scan')] [int] $MaxThreads = 8,
+    [Parameter(ParameterSetName = 'Run')] [Parameter(ParameterSetName = 'Scan')] [int] $PageSize = 1000,
+    [Parameter(ParameterSetName = 'Scan')] [switch] $ResolveExternalNames,
+    [Parameter(ParameterSetName = 'Scan')] [switch] $CollectEndpoints,
+    [Parameter(ParameterSetName = 'Scan')] [ValidateRange(1, 32)] [int] $EndpointThreads = 4,
+    [Parameter(ParameterSetName = 'Scan')] [ValidateRange(2, 300)] [int] $EndpointTimeoutSeconds = 20,
+    [Parameter(ParameterSetName = 'Scan')]
+    [Parameter(ParameterSetName = 'Merge')] [switch] $UncompressedOutput,
+    [Parameter(ParameterSetName = 'Scan')] [switch] $SkipConfiguration,
+
+    [Parameter(ParameterSetName = 'Merge', Mandatory)] [switch] $Merge,
+    [Parameter(ParameterSetName = 'Merge', Mandatory)]
+    [Parameter(ParameterSetName = 'ResolveNames', Mandatory)] [string[]] $ScanPaths,
+    [Parameter(ParameterSetName = 'ResolveNames', Mandatory)] [switch] $ResolveNames,
+    [Parameter(ParameterSetName = 'Merge', Mandatory)] [string] $MergeOutputRoot,
+
+    [Parameter(ParameterSetName = 'Report', Mandatory)] [switch] $Report,
+    [Parameter(ParameterSetName = 'Report', Mandatory)] [string[]] $DatasetPaths,
+    [Parameter(ParameterSetName = 'Report', Mandatory)] [string] $ReportOutputDir,
+    [Parameter(ParameterSetName = 'Report')] [switch] $ExportCsv,
+    [Parameter(ParameterSetName = 'Report')] [string] $BaselineIndexPath,
+    [Parameter(ParameterSetName = 'Report')] [ValidateCount(0,100)] [string[]] $TargetIds = @(),
+    [Parameter(ParameterSetName = 'Report')] [ValidateSet('Quick','Deep')] [string] $AnalysisMode = 'Quick',
+    [Parameter(ParameterSetName = 'Report')] [ValidateRange(0,1000000)] [int] $AnalysisDepth = 8,
+    [Parameter(ParameterSetName = 'Report')] [ValidateRange(0,1000000000)] [long] $AnalysisVisitLimit = 50000,
+    [Parameter(ParameterSetName = 'Report')] [ValidateRange(0,86400)] [int] $AnalysisSeconds = 0,
+    [Parameter(ParameterSetName = 'Report')] [switch] $ResumeAnalysis,
+
+    [Parameter(ParameterSetName = 'SharpHound', Mandatory)] [switch] $ImportSharpHound,
+    [Parameter(ParameterSetName = 'SharpHound', Mandatory)] [string[]] $SharpHoundPaths,
+    [Parameter(ParameterSetName = 'SharpHound')] [string] $ImportOutputRoot,
+    [Parameter(ParameterSetName = 'SharpHound')] [switch]$EnrichGroupTypes,
+    [Parameter(ParameterSetName = 'SharpHound')] [ValidateRange(1,25000)][int]$MaxGroupLookups=5000,
+    [Parameter(ParameterSetName = 'SharpHound')] [ValidateRange(1,600)][int]$EnrichmentSeconds=60,
+
+    [Parameter(ParameterSetName = 'Path', Mandatory)] [switch] $PathQuery,
+    [Parameter(ParameterSetName = 'Path', Mandatory)]
+    [Parameter(ParameterSetName = 'Search', Mandatory)]
+    [Parameter(ParameterSetName = 'Inspect', Mandatory)]
+    [Parameter(ParameterSetName = 'Findings', Mandatory)]
+    [Parameter(ParameterSetName = 'Trace', Mandatory)] [string] $IndexPath,
+    [Parameter(ParameterSetName = 'Inspect', Mandatory)] [string] $InspectObject,
+    [Parameter(ParameterSetName = 'Findings', Mandatory)] [switch] $FindingPage,
+    [Parameter(ParameterSetName = 'Findings')] [int] $AfterScore = [int]::MaxValue,
+    [Parameter(ParameterSetName = 'Findings')] [long] $AfterSequence = 0,
+    [Parameter(ParameterSetName = 'Findings')] [ValidateRange(1,200)] [int] $FindingPageSize = 100,
+    [Parameter(ParameterSetName = 'Trace', Mandatory)] [string] $TraceFinding,
+    [Parameter(ParameterSetName = 'Path', Mandatory)] [string] $SourceId,
+    [Parameter(ParameterSetName = 'Path', Mandatory)] [string] $TargetId,
+    [Parameter(ParameterSetName = 'Path')] [ValidateRange(2, 250000)] [int] $MaxVisited = 250000,
+    [Parameter(ParameterSetName = 'Path')] [ValidateRange(1, 10000)] [int] $MaxPathEdges = 2000,
+    [Parameter(ParameterSetName = 'Path')] [ValidateCount(0, 2)] [string[]] $ViaIds = @(),
+    [Parameter(ParameterSetName = 'Path')] [string[]] $EdgeTypes,
+    [Parameter(ParameterSetName = 'Search', Mandatory)] [string] $SearchName
+)
+
+$ErrorActionPreference = 'Stop'
+if (-not $DataRoot) { $DataRoot = Join-Path $PSScriptRoot 'BHData' }
+$srcDir = Join-Path $PSScriptRoot 'src'
+. (Join-Path $srcDir 'BH.LatestReport.ps1')
+Import-Module (Join-Path $srcDir 'BH.Core.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $srcDir 'BH.Report.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $srcDir 'BH.Runs.psm1') -Force -DisableNameChecking
+Initialize-BHNative
+
+switch ($PSCmdlet.ParameterSetName) {
+    'Run' {
+        $runInfo=New-BHRun -Root (Join-Path $DataRoot 'runs') -Label "$Server / $BaseDn" -Targets @($BaseDn)
+        Write-Host "Collecting and reporting. Run folder: $($runInfo.Directory)"
+        try {
+            $warningsPath=Join-Path $runInfo.Directory 'logs\warnings.log'
+            $collectedDataset=Start-BHCollection -BaseDn $BaseDn -Server $Server -Credential $Credential -OutputRoot (Join-Path $runInfo.Directory 'data\scans') -MaxThreads $MaxThreads -PageSize $PageSize 6>> $runInfo.LogPath 3>> $warningsPath
+            $completedReportPath=Start-BHReport -DatasetPaths @($collectedDataset) -OutputDir (Join-Path $runInfo.Directory 'report') 6>> $runInfo.LogPath 3>> $warningsPath
+            Update-BHRun -Directory $runInfo.Directory -Status Complete -ReportPath $completedReportPath
+            try { & (Join-Path $PSScriptRoot 'Catalog-BHOutputs.ps1') -Root $DataRoot } catch { Add-Content $runInfo.LogPath ('Catalog refresh: '+$_.Exception.Message) }
+            Write-Host "Complete. Open: $(Join-Path $runInfo.Directory 'START-HERE.html')"
+            [pscustomobject]@{Status='Complete';RunDirectory=$runInfo.Directory;ReportPath=$completedReportPath;IndexPath=(Join-Path (Split-Path $completedReportPath -Parent) 'graph.sqlite')}
+        } catch {
+            Add-Content -LiteralPath $runInfo.LogPath -Value $_.Exception.Message
+            Update-BHRun -Directory $runInfo.Directory -Status Failed -ErrorMessage $_.Exception.Message
+            throw
+        }
+    }
+
+    'Scan' {
+        Write-Host "Scanning $BaseDn via $Server (max $MaxThreads threads, page size $PageSize)..."
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $scanOptions = @{
+            CollectEndpoints = $CollectEndpoints; EndpointThreads = $EndpointThreads; EndpointTimeoutSeconds = $EndpointTimeoutSeconds
+            CompressOutput = (-not $UncompressedOutput); SkipConfiguration = $SkipConfiguration
+        }
+        $scanDir = Start-BHCollection -BaseDn $BaseDn -Server $Server -OutputRoot $OutputRoot `
+            -Credential $Credential -MaxThreads $MaxThreads -PageSize $PageSize -ResolveExternalNames:$ResolveExternalNames @scanOptions `
+            -ProgressCallback {
+                param($objects, $edges, $errors, $shardsDone, $shardsTotal, $stage)
+                Write-Host ("`r  {0,12:N0} objects  {1,12:N0} edges  {2,6:N0} errors  containers {3}/{4}  ({5:N0}s)  {6,-72}" -f $objects, $edges, $errors, $shardsDone, $shardsTotal, $sw.Elapsed.TotalSeconds, $stage) -NoNewline
+            }
+        Write-Host ""
+        Write-Host "Scan complete: $scanDir"
+        Get-Content (Join-Path $scanDir 'scan-metadata.json') -Raw
+    }
+
+    'Merge' {
+        Write-Host "Merging $($ScanPaths.Count) scan(s)..."
+        $mergeWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $mergeDir = Start-BHMerge -ScanPaths $ScanPaths -OutputRoot $MergeOutputRoot -CompressOutput:(-not $UncompressedOutput) -ProgressCallback {
+            param($phase, $label, $count, $done, $total)
+            if ($phase -eq 'phase') { Write-Host ("`n[{0:hh\:mm\:ss}] {1}" -f $mergeWatch.Elapsed, $label) }
+            else {
+                $percent = if ($total -gt 0) { [int](100 * $done / $total) } else { 0 }
+                Write-Host ("`r  {0}  {1}%  {2:N0} records   " -f $label, $percent, $count) -NoNewline
+            }
+        }
+        Write-Host "`nMerge complete: $mergeDir"
+        Get-Content (Join-Path $mergeDir 'merge-metadata.json') -Raw
+    }
+
+    'ResolveNames' {
+        foreach($scanPath in $ScanPaths){$folder=(Get-Item -LiteralPath $scanPath -ErrorAction Stop).FullName;Assert-BHDatasetsReady -DatasetPaths @($folder);$count=Resolve-BHExternalPrincipals -ScanDir $folder -Server $Server -Credential $Credential;Write-Host ("Resolved {0} names in {1}. Rebuild the report to use them." -f $count,$folder)}
+    }
+    'Report' {
+        $analysisOptions = @{ AnalysisMode = $AnalysisMode; ResumeAnalysis = $ResumeAnalysis; TargetIds=$TargetIds }
+        foreach ($option in 'AnalysisDepth','AnalysisVisitLimit','AnalysisSeconds') {
+            if ($PSBoundParameters.ContainsKey($option)) { $analysisOptions[$option] = $PSBoundParameters[$option] }
+        }
+        $reportWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $reportPath = Start-BHReport -DatasetPaths $DatasetPaths -OutputDir $ReportOutputDir -ExportCsv:$ExportCsv -BaselineIndexPath $BaselineIndexPath @analysisOptions -ProgressCallback {
+            param($label, $meta)
+            if ($meta) { Write-Host ("`r  {0,-150}" -f $label) -NoNewline } else { Write-Host ("`n[{0:hh\:mm\:ss}] {1}" -f $reportWatch.Elapsed, $label) }
+        }
+        Write-Host "Report written: $reportPath"
+    }
+
+    'SharpHound' {
+        Import-Module (Join-Path $srcDir 'BH.SharpHound.psm1') -Force -DisableNameChecking
+        if (-not $ImportOutputRoot) { $ImportOutputRoot = Join-Path $DataRoot 'scans' }
+        $dataset = Start-BHSharpHoundImport -InputPaths $SharpHoundPaths -OutputRoot $ImportOutputRoot -EnrichGroupTypes:$EnrichGroupTypes -Server $Server -Credential $Credential -MaxGroupLookups $MaxGroupLookups -EnrichmentSeconds $EnrichmentSeconds -ProgressCallback {
+            param($label) Write-Host $label
+        }
+        Write-Host "Imported dataset: $dataset"
+        Get-Content -LiteralPath (Join-Path $dataset 'scan-metadata.json') -Raw
+    }
+
+    'Path' {
+        $index = [BH.Native.GraphIndex]::new((Get-Item -LiteralPath $IndexPath).FullName, $false)
+        try {
+            $ordered=@($SourceId)+@($ViaIds)+@($TargetId)
+            $result = if($ViaIds.Count){$index.WaypointPaths([string[]]$ordered, $MaxVisited, $MaxPathEdges, $EdgeTypes)}else{$index.AllShortestPaths($SourceId, $TargetId, $MaxVisited, $MaxPathEdges, $EdgeTypes)}
+            $legs=@(if($ViaIds.Count){for($i=0;$i -lt $result.Legs.Count;$i++){
+                $leg=$result.Legs[$i]
+                [pscustomobject]@{Number=$i+1;Source=$ordered[$i];Target=$ordered[$i+1];Found=$leg.Found;Status=$leg.Status;Limited=$leg.Limited;HopCount=$leg.HopCount;Visited=$leg.Visited}
+            }})
+            [pscustomobject]@{
+                Status = if ($result.Found) { 'Found' } elseif ($result.Limited) { $result.Status } else { 'NoPathInDataset' }
+                Limited = $result.Limited
+                GraphStatus = $result.Status
+                HopCount = $result.HopCount
+                Visited = $result.Visited
+                Edges  = $result.Edges.ToArray()
+                Nodes  = @($result.Depths.Keys)
+                Waypoints = $ordered
+                Legs = $legs
+                FailedLeg = if($ViaIds.Count){$result.FailedLeg}else{0}
+                Note = 'Edges are a union of shortest routes for each consecutive leg, not a sequential chain. Limits are explicit; effective access requires validation.'
+            } | ConvertTo-Json -Depth 4
+        }
+        finally { $index.Dispose() }
+    }
+
+    'Findings' {
+        $index = [BH.Native.GraphIndex]::new((Get-Item -LiteralPath $IndexPath).FullName, $false)
+        try {
+            [pscustomobject]@{ Analysis = $index.DiskAnalysisState(); Findings = @($index.DiskFindingPage($AfterScore,$AfterSequence,$FindingPageSize))
+                Note = 'Next page: use the last finding Score and Sequence as AfterScore and AfterSequence. Paths over 256 steps have NextPathId for continuation.' } | ConvertTo-Json -Depth 10
+        }
+        finally { $index.Dispose() }
+    }
+    'Trace' {
+        $index = [BH.Native.GraphIndex]::new((Get-Item -LiteralPath $IndexPath).FullName, $false)
+        try { ConvertTo-Json -InputObject @($index.DiskPathPage($TraceFinding,256)) -Depth 5 }
+        finally { $index.Dispose() }
+    }
+    'Inspect' {
+        $index = [BH.Native.GraphIndex]::new((Get-Item -LiteralPath $IndexPath).FullName, $false)
+        try {
+            $record = $index.NodeRecord($InspectObject)
+            [pscustomobject]@{
+                ObjectId = $InspectObject
+                Properties = $(if ($record) { $record | ConvertFrom-Json } else { $null })
+                Relationships = @(foreach ($row in $index.ObjectRelationships($InspectObject, 101) | Select-Object -First 100) {
+                    @{ Source = $row[0]; Target = $row[1]; Type = $row[2]; Bucket = $row[3]; Evidence=$row[4] }
+                })
+                RelationshipLimit = 100
+                Note = 'Complete retained properties; relationships are a bounded sample of up to 100. Use path queries for other relationships.'
+            } | ConvertTo-Json -Depth 12
+        }
+        finally { $index.Dispose() }
+    }
+
+    'Search' {
+        $index = [BH.Native.GraphIndex]::new((Get-Item -LiteralPath $IndexPath).FullName, $false)
+        try {
+            foreach ($row in $index.Search($SearchName)) {
+                [pscustomobject]@{ Id = $row[0]; Name = $row[1]; Type = $row[2] }
+            }
+        }
+        finally { $index.Dispose() }
+    }
+
+    default {
+        . (Join-Path $srcDir 'BH.DcCache.ps1')
+        # ====================================================================
+        # GUI -- WinForms, Scan / Merge / Report tabs. Each long-running
+        # action (including connectivity checks and OU discovery) runs as a
+        # background job (its own process) so the GUI thread never blocks;
+        # a Forms timer polls the job's output stream and updates the UI on
+        # the GUI thread, which is the safe pattern for WinForms + PowerShell
+        # (driving controls directly from a background thread is not safe).
+        #
+        # Nothing here ever talks to LDAP directly on the GUI thread -- the
+        # "looks frozen" symptom from v1 was a bad server/credential falling
+        # straight into Start-BHCollection's long-scan retry ladder (several
+        # minutes of silent backoff) before erroring. Test-BHLdapConnectivity
+        # now fails fast (10s) and every background action reports live
+        # status instead of leaving a static "Starting..." label on screen.
+        # ====================================================================
+
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        # Both of these can only be called once per process, before any
+        # Win32 window exists. Running the GUI twice in the same console
+        # session (same powershell.exe process) hits that on the second
+        # run -- harmless to skip then, since the first run's setting is
+        # still in effect -- so these are wrapped rather than left to throw.
+        try { [System.Windows.Forms.Application]::EnableVisualStyles() } catch {}
+        try { [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false) } catch {}
+
+        $scansRoot = Join-Path $DataRoot 'scans'
+        $mergedRoot = Join-Path $DataRoot 'merged'
+        $reportsRoot = Join-Path $DataRoot 'reports'
+        foreach ($d in @($DataRoot, $scansRoot, $mergedRoot, $reportsRoot)) {
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+        }
+
+        # ---- Palette / fonts -------------------------------------------------
+        $clrHeaderBg   = [System.Drawing.Color]::FromArgb(23, 37, 56)
+        $clrHeaderFg   = [System.Drawing.Color]::White
+        $clrAccent     = [System.Drawing.Color]::FromArgb(38, 90, 160)
+        $clrAccentHover = [System.Drawing.Color]::FromArgb(29, 72, 130)
+        $clrOk         = [System.Drawing.Color]::FromArgb(24, 110, 75)
+        $clrWarn       = [System.Drawing.Color]::FromArgb(134, 82, 15)
+        $clrErr        = [System.Drawing.Color]::FromArgb(163, 42, 48)
+        $clrBodyBg     = [System.Drawing.Color]::FromArgb(241, 245, 249)
+        $clrSurface    = [System.Drawing.Color]::White
+        $clrText       = [System.Drawing.Color]::FromArgb(32, 48, 68)
+        $clrMuted      = [System.Drawing.Color]::FromArgb(76, 93, 116)
+        $clrBorder     = [System.Drawing.Color]::FromArgb(181, 195, 212)
+        $clrActiveBg   = [System.Drawing.Color]::FromArgb(224, 235, 249)
+        $fontBase      = New-Object System.Drawing.Font('Segoe UI', 10)
+        $fontBold      = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+        $fontHeader    = New-Object System.Drawing.Font('Segoe UI', 19, [System.Drawing.FontStyle]::Bold)
+        $fontMono      = New-Object System.Drawing.Font('Consolas', 9)
+        if ([System.Windows.Forms.SystemInformation]::HighContrast) {
+            $clrHeaderBg = [System.Drawing.SystemColors]::Window
+            $clrHeaderFg = [System.Drawing.SystemColors]::WindowText
+            $clrBodyBg = [System.Drawing.SystemColors]::Control
+            $clrSurface = [System.Drawing.SystemColors]::Window
+            $clrText = [System.Drawing.SystemColors]::WindowText
+            $clrMuted = $clrText
+            $clrOk = $clrText; $clrWarn = $clrText; $clrErr = $clrText
+        }
+        . (Join-Path $srcDir 'BH.Gui.Layout.ps1')
+
+        # Control factories share typography and leave positioning to the layout.
+        function New-BHGroup([string] $Text) {
+            $group = [System.Windows.Forms.GroupBox]::new()
+            $group.Text = $Text
+            $group.Font = $fontBold
+            $group.BackColor = $clrSurface
+            return $group
+        }
+
+        function New-BHLabel {
+            param([string] $Text, [switch] $Bold)
+            $label = [System.Windows.Forms.Label]::new()
+            $label.Text = $Text
+            $label.Font = if ($Bold) { $fontBold } else { $fontBase }
+            return $label
+        }
+
+        function New-BHTextBox {
+            $box = [System.Windows.Forms.TextBox]::new()
+            $box.Font = $fontBase
+            return $box
+        }
+
+        function New-BHButton {
+            param([string] $Text, [switch] $Primary)
+            $button = [System.Windows.Forms.Button]::new()
+            $button.Text = $Text
+            $button.Font = if ($Primary) { $fontBold } else { $fontBase }
+            Set-BHButtonStyle $button -Primary:$Primary
+            return $button
+        }
+
+        function New-BHProgressBar {
+            return [System.Windows.Forms.ProgressBar]::new()
+        }
+
+        function Set-BHStatus($label, $text, $color) {
+            $label.Text = $text
+            $label.ForeColor = $color
+        }
+
+        # ---- Long-operation status: what it is doing, for how long, and whether it is alive ----
+        $script:ops = @{}
+
+        function Format-BHSpan([TimeSpan] $Span) {
+            '{0:00}:{1:00}:{2:00}' -f [int][Math]::Floor($Span.TotalHours), $Span.Minutes, $Span.Seconds
+        }
+
+        function Format-BHBytes([double] $Bytes) {
+            if ($Bytes -ge 1GB) { return '{0:N1} GB' -f ($Bytes / 1GB) }
+            if ($Bytes -ge 1MB) { return '{0:N0} MB' -f ($Bytes / 1MB) }
+            return '{0:N0} KB' -f ($Bytes / 1KB)
+        }
+
+        # A progress bar that is either determinate (percent) or an animated marquee (null).
+        function Set-BHBar($Bar, $Percent) {
+            if ($null -eq $Percent) {
+                if ($Bar.Style -ne 'Marquee') { $Bar.Style = 'Marquee'; $Bar.MarqueeAnimationSpeed = 30 }
+                return
+            }
+            if ($Bar.Style -ne 'Blocks') { $Bar.Style = 'Blocks' }
+            $Bar.Value = [int][Math]::Max(0, [Math]::Min(100, $Percent))
+        }
+
+        function Start-BHOperation([string] $Key, [string] $WatchFolder) {
+            $script:ops[$Key] = @{
+                Total = [System.Diagnostics.Stopwatch]::StartNew()
+                Step = [System.Diagnostics.Stopwatch]::StartNew()
+                Quiet = [System.Diagnostics.Stopwatch]::StartNew()   # time since the last progress message
+                StartedAt = Get-Date
+                StepName = ''; Detail = 'Starting ...'; Folder = $WatchFolder; Disk = ''; DiskCheckedAt = -10.0
+            }
+        }
+
+        # Records a new step and/or detail. Returns a "finished in" line when the step changed.
+        function Set-BHOperationProgress([string] $Key, [string] $Step, [string] $Detail) {
+            $op = $script:ops[$Key]
+            if (-not $op) { return $null }
+            $finished = $null
+            if ($Step -and $Step -ne $op.StepName) {
+                if ($op.StepName) { $finished = '    finished in {0}: {1}' -f (Format-BHSpan $op.Step.Elapsed), $op.StepName }
+                $op.StepName = $Step; $op.Step.Restart(); $op.Detail = ''
+            }
+            if ($Detail) { $op.Detail = $Detail }
+            $op.Quiet.Restart()
+            return $finished
+        }
+
+        # Two lines: what it is doing, then timing plus disk activity. The disk figure counts only
+        # files written since the operation began, so a stalled job shows "last disk write ... ago".
+        function Get-BHOperationText([string] $Key) {
+            $op = $script:ops[$Key]
+            if (-not $op) { return $null }
+            if ($op.Folder -and ($op.Total.Elapsed.TotalSeconds - $op.DiskCheckedAt) -ge 5) {
+                $op.DiskCheckedAt = $op.Total.Elapsed.TotalSeconds
+                try {
+                    $files = @(Get-ChildItem -LiteralPath $op.Folder -Recurse -Force -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LastWriteTime -ge $op.StartedAt.AddSeconds(-2) })
+                    if ($files.Count) {
+                        $newest = ($files | Measure-Object LastWriteTime -Maximum).Maximum
+                        $op.Disk = 'files written: {0}, last disk write {1} ago' -f (Format-BHBytes ($files | Measure-Object Length -Sum).Sum), (Format-BHSpan ([DateTime]::Now - $newest))
+                    }
+                } catch { $op.Disk = '' }
+            }
+            $first = if ($op.StepName) { if ($op.Detail) { "$($op.StepName)  |  $($op.Detail)" } else { $op.StepName } } else { $op.Detail }
+            $second = 'This step {0}   |   Total {1}   |   Last update {2} ago' -f (Format-BHSpan $op.Step.Elapsed), (Format-BHSpan $op.Total.Elapsed), (Format-BHSpan $op.Quiet.Elapsed)
+            if ($op.Disk) { $second += "   |   $($op.Disk)" }
+            return "$first`r`n$second"
+        }
+
+        function Complete-BHOperation([string] $Key) {
+            $op = $script:ops[$Key]
+            if (-not $op) { return $null }
+            $script:ops.Remove($Key)
+            [pscustomobject]@{
+                Total = Format-BHSpan $op.Total.Elapsed
+                LastStep = $(if ($op.StepName) { '    finished in {0}: {1}' -f (Format-BHSpan $op.Step.Elapsed), $op.StepName })
+            }
+        }
+
+        # Background-job runner: polls every 400ms, surfaces each Receive-Job
+        # item to -OnProgress, fires -OnTick every poll regardless (for live
+        # elapsed-time display), and -OnFinished once the job ends. Returns
+        # the job+timer so a Cancel button can Stop-Job and let the next
+        # tick clean everything up through the normal OnFinished path.
+        function New-BHJobRunner {
+            param(
+                [scriptblock] $ScriptBlock,
+                [object[]] $ArgumentList,
+                [scriptblock] $OnProgress,
+                [scriptblock] $OnFinished,
+                [scriptblock] $OnTick
+            )
+
+            # Run the caller's scriptblock inside a wrapper that merges every
+            # stream (information/warning/error) into plain output with *>&1.
+            # Otherwise Receive-Job does not hand Write-Host / Write-Information
+            # records back as items, and the GUI never sees progress or log lines.
+            $wrapper = { param($body, $argList) $inner = [scriptblock]::Create($body); & $inner @argList *>&1 }
+            $job = Start-Job -ScriptBlock $wrapper -ArgumentList $ScriptBlock.ToString(), $ArgumentList
+            $timer = New-Object System.Windows.Forms.Timer
+            $timer.Interval = 400
+            $timer.Add_Tick({
+                if ($OnTick) { & $OnTick }
+                $items = Receive-Job -Job $job -ErrorAction SilentlyContinue
+                foreach ($item in $items) {
+                    # Structured progress travels on the Information stream
+                    # (so it can't pollute a function's return value inside
+                    # the job); unwrap it back into the plain object here.
+                    # (Job output arrives deserialized, so test for the
+                    # MessageData property rather than the .NET type.)
+                    if ($item -and $item.PSObject.Properties['MessageData'] -and
+                        $item.MessageData -and $item.MessageData.PSObject.Properties['Kind']) {
+                        $item = $item.MessageData
+                    }
+                    if ($OnProgress) { & $OnProgress $item }
+                }
+                if ($job.State -in @('Completed', 'Failed', 'Stopped')) {
+                    $timer.Stop()
+                    $timer.Dispose()
+                    $jobErrors = $job.ChildJobs[0].Error
+                    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+                    if ($OnFinished) { & $OnFinished $job.State $jobErrors }
+                }
+            }.GetNewClosure())
+            $timer.Start()
+            return [pscustomobject]@{ Job = $job; Timer = $timer }
+        }
+
+        function Stop-BHRunner($runner) {
+            if ($runner -and $runner.Job -and $runner.Job.State -eq 'Running') {
+                Stop-Job -Job $runner.Job -ErrorAction SilentlyContinue
+            }
+        }
+
+        # ---- Form shell: header banner + tabs ---------------------------------
+        $form = New-Object System.Windows.Forms.Form
+        $buildName='BHTest'
+        try{$buildFile=Join-Path $PSScriptRoot 'BUILD-INFO.json';if(Test-Path -LiteralPath $buildFile){$build=Get-Content -LiteralPath $buildFile -Raw|ConvertFrom-Json;if($build.Package){$buildName=$build.Package}}}catch{}
+        $form.Text = $buildName+' | Active Directory Attack-Path Auditor'
+        $form.Size = New-Object System.Drawing.Size(1120, 850)
+        $form.MinimumSize = New-Object System.Drawing.Size(880, 695)
+        $form.StartPosition = 'CenterScreen'
+        $form.Font = $fontBase
+        $form.BackColor = $clrBodyBg
+        $form.ForeColor = $clrText
+        $form.AutoScaleMode = 'Dpi'
+
+        $header = New-Object System.Windows.Forms.Panel
+        $header.Dock = 'Top'
+        $header.Height = 80
+        $header.BackColor = $clrHeaderBg
+        $lblTitle = New-Object System.Windows.Forms.Label
+        $lblTitle.Text = 'BHTest'
+        $lblTitle.Font = $fontHeader
+        $lblTitle.ForeColor = $clrHeaderFg
+        $lblTitle.AutoSize = $true
+        $lblTitle.Location = New-Object System.Drawing.Point(19, 8)
+        $lblSubtitle = New-Object System.Windows.Forms.Label
+        $lblSubtitle.Text = 'Active Directory attack-path auditor'
+        $lblSubtitle.Font = $fontBase
+        $lblSubtitle.ForeColor = if ([System.Windows.Forms.SystemInformation]::HighContrast) { $clrHeaderFg } else { [System.Drawing.Color]::FromArgb(191, 208, 227) }
+        $lblSubtitle.AutoSize = $true
+        $lblSubtitle.Location = New-Object System.Drawing.Point(22, 48)
+        $btnHelp=New-BHButton 'Help && glossary'
+        $btnHelp.Name='HelpLibrary';$btnHelp.Dock='Right';$btnHelp.Width=160
+        $helpAction={
+            try{
+                $helpViewer=Join-Path $PSScriptRoot 'BHTest.Viewer.ps1'
+                if(-not (Test-Path -LiteralPath $helpViewer)){throw 'The packaged viewer/help library is missing. Re-extract the complete BHTest package.'}
+                Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -WindowStyle Hidden -ArgumentList ('-NoProfile -STA -File "'+$helpViewer+'" -Help')
+            }catch{[void][System.Windows.Forms.MessageBox]::Show($form,$_.Exception.Message,'Help library unavailable')}
+        }
+        $btnHelp.Add_Click($helpAction)
+        $form.KeyPreview=$true
+        $form.Add_KeyDown({param($sender,$e)if($e.KeyCode -eq [System.Windows.Forms.Keys]::F1){& $helpAction;$e.SuppressKeyPress=$true}})
+        $header.Controls.AddRange(@($lblTitle, $lblSubtitle,$btnHelp))
+        $form.Controls.Add($header)
+
+        $tabs = New-Object System.Windows.Forms.TabControl
+        $tabs.Dock = 'Fill'
+        $tabs.Font = $fontBase
+        $tabs.SizeMode = 'Fixed'
+        $tabs.ItemSize = [System.Drawing.Size]::new(142, 38)
+        if (-not [System.Windows.Forms.SystemInformation]::HighContrast) {
+            $tabs.DrawMode = 'OwnerDrawFixed'
+            $tabs.Add_DrawItem({
+                param($sender, $item)
+                $selected = $item.Index -eq $sender.SelectedIndex
+                $background = if ($selected) { $clrActiveBg } else { $clrBodyBg }
+                $foreground = if ($selected) { $clrAccentHover } else { $clrMuted }
+                $brush = [System.Drawing.SolidBrush]::new($background)
+                try {
+                    $item.Graphics.FillRectangle($brush, $item.Bounds)
+                    if ($selected) {
+                        $brush.Color = $clrAccent
+                        $item.Graphics.FillRectangle($brush, $item.Bounds.X, $item.Bounds.Bottom - 3, $item.Bounds.Width, 3)
+                    }
+                }
+                finally { $brush.Dispose() }
+                $flags = [System.Windows.Forms.TextFormatFlags]'HorizontalCenter,VerticalCenter,EndEllipsis'
+                $font = if ($selected) { $fontBold } else { $fontBase }
+                [System.Windows.Forms.TextRenderer]::DrawText($item.Graphics, $sender.TabPages[$item.Index].Text,
+                    $font, $item.Bounds, $foreground, $flags)
+                if ($sender.Focused -and $selected) { $item.DrawFocusRectangle() }
+            })
+        }
+        $form.Controls.Add($tabs)
+
+        # =======================================================================
+        # Tab 1: Scan
+        # =======================================================================
+        $tabScan = New-Object System.Windows.Forms.TabPage 'Scan'
+        $tabScan.BackColor = $clrBodyBg
+        $tabScan.AutoScroll = $true
+        $tabs.TabPages.Add($tabScan)
+
+        # -- Connection group --
+        $grpConn = New-BHGroup 'Connection'
+
+        $lblServer = New-BHLabel 'Domain / DC'
+        $txtServer = New-BHTextBox
+        $txtServer.AccessibleName='Domain controller with cached suggestions'
+        $script:dcDomain=([string]$env:USERDNSDOMAIN).Trim().ToLowerInvariant()
+        $script:dcLogonServer=ConvertTo-BHDcHost $env:LOGONSERVER
+        $script:dcCachePath=Join-Path $DataRoot 'dc-cache.json'
+        $script:dcHosts=@(Read-BHDcCache -Path $script:dcCachePath -Domain $script:dcDomain)
+        Set-BHDcSuggestions $txtServer @($script:dcHosts|Where-Object {-not (Test-BHSameDc $_ $script:dcLogonServer)})
+        $script:dcServerEdited=$false;$script:dcAutoSelecting=$false;$script:dcDiscoveryRunner=$null;$script:dcInventoryFromConnect=$false;$script:dcLogonAvailable=$false
+        $txtServer.Add_TextChanged({if(-not $script:dcAutoSelecting){$script:dcServerEdited=$true}})
+
+        $lblUser = New-BHLabel 'Username'
+        $txtUser = New-BHTextBox
+
+        $lblPass = New-BHLabel 'Password:'
+        $txtPass = New-BHTextBox
+        $txtPass.UseSystemPasswordChar = $true
+
+        $lblThreads = New-BHLabel 'Max threads:'
+        $numThreads = New-Object System.Windows.Forms.NumericUpDown
+        $numThreads.Font = $fontBase
+        $numThreads.Minimum = 1; $numThreads.Maximum = 64; $numThreads.Value = 8
+
+        $lblPageSize = New-BHLabel 'Page size:'
+        $numPageSize = New-Object System.Windows.Forms.NumericUpDown
+        $numPageSize.Font = $fontBase
+        $numPageSize.Minimum = 1; $numPageSize.Maximum = 1000; $numPageSize.Value = 1000
+
+        $btnTestConn = New-BHButton 'Connect && load OUs' -Primary
+        $lblConnStatus = New-BHLabel 'Not connected.'
+        $lblConnStatus.ForeColor = $clrMuted
+
+        $connHint = New-BHLabel 'Leave the username blank to use your Windows account.'
+        $connHint.ForeColor = $clrMuted
+
+        $connectionLayout = New-BHLayout @(100, '50%', 100, '50%') @(34, 34, 37, 24) 8
+        $grpConn.Controls.Add($connectionLayout)
+        Add-BHCell $connectionLayout $lblServer 0 0
+        Add-BHCell $connectionLayout $txtServer 1 0
+        Add-BHCell $connectionLayout $lblUser 2 0
+        Add-BHCell $connectionLayout $txtUser 3 0
+        Add-BHCell $connectionLayout $lblPass 0 1
+        Add-BHCell $connectionLayout $txtPass 1 1
+        $limitsLayout = New-BHLayout @(100, 65, 78, 74, '100%') @('100%')
+        Add-BHCell $connectionLayout $limitsLayout 2 1 2
+        Add-BHCell $limitsLayout $lblThreads 0 0
+        Add-BHCell $limitsLayout $numThreads 1 0
+        Add-BHCell $limitsLayout $lblPageSize 2 0
+        Add-BHCell $limitsLayout $numPageSize 3 0
+        $connectLayout = New-BHLayout @(170, '100%') @('100%')
+        Add-BHCell $connectionLayout $connectLayout 0 2 4
+        Add-BHCell $connectLayout $btnTestConn 0 0
+        Add-BHCell $connectLayout $lblConnStatus 1 0
+        Add-BHCell $connectionLayout $connHint 0 3 4
+
+        # -- Scan targets group (OU picker: tick one or more OUs) --
+        $grpTarget = New-BHGroup 'Scan targets'
+
+        $lblTargetHelp = New-BHLabel 'Directory tree' -Bold
+
+        $treeOus = New-Object System.Windows.Forms.TreeView
+        $treeOus.Font = $fontBase
+        $treeOus.HideSelection = $false
+        $treeOus.CheckBoxes = $true
+        $treeOus.AccessibleName = 'Directory tree'
+        $treeOus.BorderStyle = 'FixedSingle'
+
+        $lblQueue = New-BHLabel 'Selected OUs' -Bold
+        $lstQueue = New-Object System.Windows.Forms.ListBox
+        $lstQueue.Font = $fontBase
+        $lstQueue.HorizontalScrollbar = $true
+        $lstQueue.IntegralHeight = $false
+        $lstQueue.AccessibleName = 'Selected organizational units'
+        $btnClearQueue = New-BHButton 'Clear selection'
+        $lblQueueCount = New-BHLabel '0 selected'
+        $lblBaseDn = New-BHLabel 'Base DN if no OUs are selected'
+        $txtBaseDn = New-BHTextBox
+        $txtBaseDn.AccessibleName = 'Base distinguished name'
+
+        $lblOut = New-BHLabel 'Scans folder:'
+        $txtOut = New-BHTextBox
+        $txtOut.Text = $scansRoot
+        $btnBrowseOut = New-BHButton 'Browse...'
+
+        $chkAutoReport = New-Object System.Windows.Forms.CheckBox
+        $chkAutoReport.Font = $fontBase
+        $chkAutoReport.Text = 'Merge and build a report after all scans finish'
+        $chkAutoReport.Checked = $true
+        $chkCompress = [System.Windows.Forms.CheckBox]::new()
+        $chkCompress.Text = 'Compress scan files'
+        $chkCompress.Checked = $true
+        $chkEndpoints = [System.Windows.Forms.CheckBox]::new()
+        $chkEndpoints.Text = 'Collect endpoint groups and logons using my Windows account'
+
+        $targetLayout = New-BHLayout @('62%', '38%') @(24, '100%', 33, 28, 28) 8
+        $grpTarget.Controls.Add($targetLayout)
+        Add-BHCell $targetLayout $lblTargetHelp 0 0
+        Add-BHCell $targetLayout $lblQueue 1 0
+        Add-BHCell $targetLayout $treeOus 0 1
+        $queueLayout = New-BHLayout @('100%') @('100%', 34, 22, 28)
+        Add-BHCell $targetLayout $queueLayout 1 1
+        Add-BHCell $queueLayout $lstQueue 0 0
+        $queueActions = New-BHLayout @(124, '100%') @('100%')
+        Add-BHCell $queueLayout $queueActions 0 1
+        Add-BHCell $queueActions $btnClearQueue 0 0
+        Add-BHCell $queueActions $lblQueueCount 1 0
+        Add-BHCell $queueLayout $lblBaseDn 0 2
+        Add-BHCell $queueLayout $txtBaseDn 0 3
+        $scanOutput = New-BHLayout @(100, '100%', 100) @('100%')
+        Add-BHCell $targetLayout $scanOutput 0 2 2
+        Add-BHCell $scanOutput $lblOut 0 0
+        Add-BHCell $scanOutput $txtOut 1 0
+        Add-BHCell $scanOutput $btnBrowseOut 2 0
+        Add-BHCell $targetLayout $chkAutoReport 0 3
+        Add-BHCell $targetLayout $chkCompress 1 3
+        Add-BHCell $targetLayout $chkEndpoints 0 4 2
+
+        # -- Run group --
+        $btnScan = New-BHButton 'Start scan' -Primary
+        $btnCancelScan = New-BHButton 'Cancel'
+        $btnCancelScan.Enabled = $false
+        $progScan = New-BHProgressBar
+        $lblScanElapsed = New-BHLabel ''
+        $lblScanProgress = New-BHLabel 'Connect to browse organizational units, or enter a base DN.'
+        $lblScanProgress.ForeColor = $clrMuted
+
+        $txtScanLog = New-Object System.Windows.Forms.TextBox
+        $txtScanLog.Multiline = $true; $txtScanLog.ScrollBars = 'Vertical'; $txtScanLog.ReadOnly = $true
+        $txtScanLog.Font = $fontMono
+        $txtScanLog.BackColor = [System.Drawing.Color]::White
+
+        $scanLayout = New-BHLayout @('100%') @(175, '68%', 43, 46, '32%') 18
+        $tabScan.AutoScrollMinSize = [System.Drawing.Size]::new(0, 730)
+        $scanLayout.MinimumSize = [System.Drawing.Size]::new(0, 730)
+        $tabScan.Controls.Add($scanLayout)
+        Add-BHCell $scanLayout $grpConn 0 0
+        Add-BHCell $scanLayout $grpTarget 0 1
+        $scanActions = New-BHLayout @(135, 88, '100%', 155) @('100%')
+        Add-BHCell $scanLayout $scanActions 0 2
+        Add-BHCell $scanActions $btnScan 0 0
+        Add-BHCell $scanActions $btnCancelScan 1 0
+        Add-BHCell $scanActions $progScan 2 0
+        $progScan.Dock = 'None'
+        $progScan.Anchor = 'Left,Right'
+        $progScan.Height = 16
+        Add-BHCell $scanActions $lblScanElapsed 3 0
+        Add-BHCell $scanLayout $lblScanProgress 0 3
+        Add-BHCell $scanLayout $txtScanLog 0 4
+        Set-BHLogStyle $txtScanLog
+
+        # ---- OU tree: lazy, backed by a compiled index -------------------------
+        # A big domain can have tens of thousands of OUs. Parsing a JSON cache
+        # of them and creating a TreeNode for every one up front is what made
+        # startup slow. Instead the cache is a plain tab-separated file parsed
+        # and indexed in C# (BH.Native.OuIndex), and tree nodes are only created
+        # for a level when the user expands it.
+        $script:ouIndex = $null
+        $script:checkedDns = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        $script:suppressCheck = $false
+
+        function New-BHOuNode {
+            param([string] $Name, [string] $Dn)
+            $n = New-Object System.Windows.Forms.TreeNode($Name)
+            $n.Tag = $Dn
+            $script:suppressCheck = $true
+            $n.Checked = $script:checkedDns.Contains($Dn)
+            $script:suppressCheck = $false
+            if ($script:ouIndex.HasChildren($Dn)) {
+                $ph = New-Object System.Windows.Forms.TreeNode('...')
+                $ph.Name = '__ph'
+                [void]$n.Nodes.Add($ph)
+            }
+            return $n
+        }
+
+        function Show-BHOuTree {
+            $treeOus.BeginUpdate()
+            $treeOus.Nodes.Clear()
+            if ($script:ouIndex -and $script:ouIndex.RootDn) {
+                $rootNode = New-BHOuNode $script:ouIndex.RootName $script:ouIndex.RootDn
+                [void]$treeOus.Nodes.Add($rootNode)
+                $rootNode.Expand()
+            }
+            $treeOus.EndUpdate()
+        }
+
+        function Populate-BHOuTree {
+            # Used after a live "Connect and load OUs". When -Server is given
+            # the result is also written to the cache file for next launch.
+            param($Items, [string] $Server)
+            $rows = New-Object 'System.Collections.Generic.List[object]'
+            foreach ($it in $Items) { $rows.Add($it) }
+            $n = $rows.Count
+            $dns = New-Object string[] $n
+            $names = New-Object string[] $n
+            $parents = New-Object string[] $n
+            for ($i = 0; $i -lt $n; $i++) {
+                $dns[$i] = [string]$rows[$i].Dn
+                $names[$i] = [string]$rows[$i].Name
+                $parents[$i] = [string]$rows[$i].ParentDn
+            }
+            $script:ouIndex = [BH.Native.OuIndex]::FromRows($dns, $names, $parents)
+            if ($Server) {
+                try { [BH.Native.OuIndex]::SaveTsv($script:ouCachePath, $Server, $dns, $names, $parents) } catch {}
+            }
+            Show-BHOuTree
+        }
+
+        $treeOus.Add_BeforeExpand({
+            param($s, $e)
+            $node = $e.Node
+            if ($node.Nodes.Count -eq 1 -and $node.Nodes[0].Name -eq '__ph') {
+                $treeOus.BeginUpdate()
+                $node.Nodes.Clear()
+                $made = New-Object 'System.Collections.Generic.List[System.Windows.Forms.TreeNode]'
+                foreach ($k in $script:ouIndex.GetChildren([string]$node.Tag)) { $made.Add((New-BHOuNode $k[0] $k[1])) }
+                $node.Nodes.AddRange($made.ToArray())
+                $treeOus.EndUpdate()
+            }
+        })
+
+        # ---- Multi-select: which OUs are ticked --------------------------------
+        # The tree is built lazily, so a ticked OU may not have a TreeNode yet.
+        # The set of ticked DNs is the source of truth; nodes read their tick
+        # state from it when they are created.
+        function Refresh-BHQueueList {
+            $lstQueue.BeginUpdate()
+            $lstQueue.Items.Clear()
+            foreach ($d in ($script:checkedDns | Sort-Object)) { [void]$lstQueue.Items.Add($d) }
+            $lstQueue.EndUpdate()
+            $lblQueueCount.Text = "$($script:checkedDns.Count) selected"
+        }
+
+        function Uncheck-BHNodes {
+            param($Nodes)
+            foreach ($n in $Nodes) { $n.Checked = $false; Uncheck-BHNodes $n.Nodes }
+        }
+
+        $treeOus.Add_AfterCheck({
+            param($s, $e)
+            if ($script:suppressCheck) { return }
+            $dn = [string]$e.Node.Tag
+            if (-not $dn) { return }
+            if ($e.Node.Checked) { [void]$script:checkedDns.Add($dn) } else { [void]$script:checkedDns.Remove($dn) }
+            Refresh-BHQueueList
+        })
+
+        $btnClearQueue.Add_Click({
+            $script:suppressCheck = $true
+            Uncheck-BHNodes $treeOus.Nodes
+            $script:suppressCheck = $false
+            $script:checkedDns.Clear()
+            Refresh-BHQueueList
+        })
+
+        # ---- Settings + OU cache persistence -----------------------------------
+        # Saved to DataRoot, not the install folder, so it survives a
+        # redeploy (re-copying the script files) and so each DataRoot gets
+        # its own remembered config -- e.g. separate machines pointed at
+        # separate scan output roots.
+        $script:settingsPath = Join-Path $DataRoot 'gui-settings.json'
+        $script:ouCachePath = Join-Path $DataRoot 'ou-cache.tsv'
+
+        function Save-BHGuiSettings {
+            # Best-effort only: a save failure here should never block
+            # closing the GUI or finishing a scan. Password is deliberately
+            # never written to disk. The OU list lives in its own file
+            # (ou-cache.tsv), so closing the GUI no longer rewrites it.
+            try {
+                $settings = [ordered]@{
+                    Server             = $txtServer.Text
+                    UserName           = $txtUser.Text
+                    MaxThreads         = [int]$numThreads.Value
+                    PageSize           = [int]$numPageSize.Value
+                    CompressOutput     = [bool]$chkCompress.Checked
+                    CollectEndpoints   = [bool]$chkEndpoints.Checked
+                    ScansFolder        = $txtOut.Text
+                    MergeOutputRoot    = $txtMergeOut.Text
+                    ReportOutputFolder = $txtReportOut.Text
+                    LastBaseDn         = $txtBaseDn.Text
+                    CheckedOus         = @($script:checkedDns)
+                }
+                $settings | ConvertTo-Json -Depth 3 | Set-Content -Path $script:settingsPath -Encoding UTF8
+            }
+            catch {}
+        }
+
+        function Load-BHOuCache {
+            # Returns $true if a cache for the current server was loaded. It is
+            # only reused for the server it was captured from -- a stale tree
+            # from a different domain would be misleading.
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                $idx = [BH.Native.OuIndex]::LoadTsv($script:ouCachePath, $txtServer.Text)
+                if (-not $idx) { return $false }
+                $script:ouIndex = $idx
+                Show-BHOuTree
+                Set-BHStatus $lblConnStatus ("Loaded {0} OU(s) from cache in {1:N0} ms (saved {2}). Click 'Connect and load OUs' to refresh." -f $idx.Count, $sw.Elapsed.TotalMilliseconds, $idx.SavedUtc) $clrWarn
+                return $true
+            }
+            catch { return $false }
+        }
+
+        function Load-BHGuiSettings {
+            $script:dcSavedSettings=$null
+            if (Test-Path $script:settingsPath) {
+                $settings = $null
+                try { $settings = Get-Content -Path $script:settingsPath -Raw | ConvertFrom-Json } catch {}
+                if ($settings) {
+                    $script:dcSavedSettings=$settings
+                    # Startup selects only the current user's verified logon DC.
+                    # A remembered server must not override it or fill an unavailable DC.
+                    if ($settings.UserName) { $txtUser.Text = $settings.UserName }
+                    if ($settings.MaxThreads) { $numThreads.Value = [Math]::Max($numThreads.Minimum, [Math]::Min($numThreads.Maximum, [int]$settings.MaxThreads)) }
+                    if ($settings.PageSize) { $numPageSize.Value = [Math]::Max($numPageSize.Minimum, [Math]::Min($numPageSize.Maximum, [int]$settings.PageSize)) }
+                    if ($settings.PSObject.Properties['CompressOutput']) { $chkCompress.Checked = [bool]$settings.CompressOutput }
+                    if ($settings.PSObject.Properties['CollectEndpoints']) { $chkEndpoints.Checked = [bool]$settings.CollectEndpoints }
+                    if ($settings.ScansFolder) { $txtOut.Text = $settings.ScansFolder }
+                    if ($settings.MergeOutputRoot) { $txtMergeOut.Text = $settings.MergeOutputRoot }
+                    if ($settings.ReportOutputFolder) { $txtReportOut.Text = $settings.ReportOutputFolder }
+                    # Restore scan targets only after a verified server/cache matches.
+                }
+            }
+            Refresh-BHQueueList
+        }
+
+        function Start-BHDcDiscovery {
+            if(-not $script:dcDomain){Set-BHStatus $lblConnStatus 'No logon domain detected. Enter a DC manually.' $clrMuted;return}
+            $work={
+                param($source,$server,$domain,$hosts)
+                Import-Module (Join-Path $source 'BH.Core.psm1') -DisableNameChecking
+                . (Join-Path $source 'BH.DcCache.ps1')
+                $found=Get-BHDcDiscovery -LogonServer $server -Domain $domain -CachedHosts $hosts
+                [pscustomobject]@{Kind='dc-discovery';Selected=$found.Selected;Hosts=@($found.Hosts);Complete=$found.Complete;Error=$found.Error}
+            }
+            Set-BHStatus $lblConnStatus 'Checking logon DC and refreshing DC suggestions...' $clrMuted
+            $script:dcDiscoveryRunner=New-BHJobRunner -ScriptBlock $work -ArgumentList @($srcDir,$script:dcLogonServer,$script:dcDomain,[string[]]$script:dcHosts) -OnProgress {
+                param($item)
+                if($item.Kind -ne 'dc-discovery'){return}
+                if($script:dcInventoryFromConnect){return}
+                $script:dcLogonAvailable=[bool]$item.Selected
+                $script:dcHosts=@($item.Hosts)
+                Set-BHDcSuggestions $txtServer $script:dcHosts
+                try{Save-BHDcCache -Path $script:dcCachePath -Domain $script:dcDomain -Hosts $script:dcHosts}catch{}
+                if(-not $script:dcServerEdited -and [string]::IsNullOrWhiteSpace($txtServer.Text)){
+                    if($item.Selected){
+                        $script:dcAutoSelecting=$true
+                        try{$txtServer.Text=$item.Selected}finally{$script:dcAutoSelecting=$false}
+                        if($script:dcSavedSettings -and (Test-BHSameDc $script:dcSavedSettings.Server $item.Selected)){
+                            if($script:dcSavedSettings.LastBaseDn){$txtBaseDn.Text=$script:dcSavedSettings.LastBaseDn}
+                            foreach($dn in @($script:dcSavedSettings.CheckedOus)){if($dn){[void]$script:checkedDns.Add([string]$dn)}}
+                        }
+                        [void](Load-BHOuCache)
+                        Refresh-BHQueueList
+                    }
+                    $message=if($item.Selected){'Logon DC selected. Connect to load OUs.'}else{'Logon DC unavailable. Enter a DC or choose a cached suggestion.'}
+                    Set-BHStatus $lblConnStatus ($message+' '+$script:dcHosts.Count+' cached DC(s).') $clrMuted
+                }
+            } -OnFinished {param($state,$jobErrors)
+                if($state -ne 'Completed' -and -not $script:dcServerEdited){Set-BHStatus $lblConnStatus 'DC discovery unavailable. Enter a DC manually; the GUI remains open.' $clrMuted}
+            }
+        }
+
+        $treeOus.Add_AfterSelect({
+            param($s, $e)
+            if ($e.Node.Tag) { $txtBaseDn.Text = [string]$e.Node.Tag }
+        })
+
+        $btnTestConn.Add_Click({
+            $btnTestConn.Enabled = $false
+            $treeOus.Nodes.Clear()
+            Set-BHStatus $lblConnStatus 'Connecting... (times out after 10s if unreachable)' $clrWarn
+
+            $sb = {
+                param($srcDir, $server, $userName, $password, $dcDomain)
+                Import-Module (Join-Path $srcDir 'BH.Core.psm1') -Force -DisableNameChecking
+                Initialize-BHNative
+                $cred = $null
+                if ($userName) {
+                    $sec = ConvertTo-SecureString -String $password -AsPlainText -Force
+                    $cred = New-Object System.Management.Automation.PSCredential($userName, $sec)
+                }
+                $probe = Test-BHLdapConnectivity -Server $server -Credential $cred -TimeoutSeconds 10
+                if (-not $probe.Ok) {
+                    Write-Output ([pscustomobject]@{ Kind = 'error'; Message = $probe.Error })
+                    return
+                }
+                Write-Output ([pscustomobject]@{ Kind = 'connected' })
+                try {
+                    $ous = Get-BHOuTree -Server $server -Credential $cred -TimeoutSeconds 20
+                    Write-Output ([pscustomobject]@{ Kind = 'result'; Ous = $ous })
+                    if($dcDomain){
+                        try{
+                            . (Join-Path $srcDir 'BH.DcCache.ps1')
+                            $inventory=Get-BHDcInventory -Server $server -Domain $dcDomain -Credential $cred
+                            [pscustomobject]@{Kind='dc-inventory';Hosts=@($inventory.Hosts);Complete=$inventory.Complete;Server=$inventory.Server}
+                        }catch{} # Discovery must not turn a successful connection into a failure.
+                    }
+                }
+                catch {
+                    Write-Output ([pscustomobject]@{ Kind = 'error'; Message = "Connected, but listing OUs failed: $($_.Exception.Message)" })
+                }
+            }
+
+            $args = @($srcDir, $txtServer.Text, $txtUser.Text, $txtPass.Text,$script:dcDomain)
+            $script:connRunner = New-BHJobRunner -ScriptBlock $sb -ArgumentList $args `
+                -OnProgress {
+                    param($item)
+                    switch ($item.Kind) {
+                        'connected' { Set-BHStatus $lblConnStatus 'Connected. Loading OUs...' $clrWarn }
+                        'dc-inventory' {
+                            $script:dcInventoryFromConnect=$true
+                            if(Test-BHSameDc $item.Server $script:dcLogonServer){$script:dcLogonAvailable=$true}
+                            $names=if($item.Complete){@($item.Hosts)}else{@($script:dcHosts)+@($item.Hosts)}
+                            $script:dcHosts=@($names|Where-Object {$script:dcLogonAvailable -or -not (Test-BHSameDc $_ $script:dcLogonServer)}|Sort-Object -Unique)
+                            Set-BHDcSuggestions $txtServer $script:dcHosts
+                            try{Save-BHDcCache -Path $script:dcCachePath -Domain $script:dcDomain -Hosts $script:dcHosts}catch{}
+                        }
+                        'result' {
+                            Populate-BHOuTree -Items $item.Ous -Server $txtServer.Text
+                            Save-BHGuiSettings
+                            Set-BHStatus $lblConnStatus "Connected -- $($item.Ous.Count) OU(s)/domain root found. Click one to set the scan target. (Cached for next time.)" $clrOk
+                        }
+                        'error' { Set-BHStatus $lblConnStatus "Failed: $($item.Message)" $clrErr }
+                    }
+                } `
+                -OnFinished {
+                    param($state, $jobErrors)
+                    $btnTestConn.Enabled = $true
+                    if ($jobErrors -and $jobErrors.Count -gt 0) {
+                        Set-BHStatus $lblConnStatus "Failed: $($jobErrors[0])" $clrErr
+                    }
+                }
+        })
+
+        $btnBrowseOut.Add_Click({
+            $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dlg.Description = 'Choose a folder for scan output'
+            if (Test-Path $txtOut.Text) { $dlg.SelectedPath = $txtOut.Text }
+            if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtOut.Text = $dlg.SelectedPath }
+        })
+
+        # The multi-target scan, kept as its own scriptblock and run in a
+        # background job: scans each target in turn, keeps going if one fails,
+        # then optionally merges and builds the report. Everything it does is
+        # also appended to a log file on disk, so the outcome survives a closed
+        # window or a missed screen.
+        $script:BatchScanJob = {
+            param($srcDir, $targets, $server, $userName, $password, $outRoot, $maxThreads, $pageSize, $autoReport, $mergedRoot, $reportsRoot, $logPath, $compressOutput, $collectEndpoints)
+            $ErrorActionPreference='Stop'
+            Import-Module (Join-Path $srcDir 'BH.Core.psm1') -Force -DisableNameChecking
+            Import-Module (Join-Path $srcDir 'BH.Report.psm1') -Force -DisableNameChecking
+            Import-Module (Join-Path $srcDir 'BH.Runs.psm1') -Force -DisableNameChecking
+            Initialize-BHNative
+
+            function Log([string] $m) {
+                $line = '{0:yyyy-MM-dd HH:mm:ss} {1}' -f (Get-Date), $m
+                try { Add-Content -Path $logPath -Value $line } catch {}
+                Write-Output $line
+            }
+
+            function Invoke-BHBatchAction([scriptblock]$Action){
+                & $Action *>&1 | ForEach-Object {
+                    if($_ -is [System.Management.Automation.InformationRecord]){
+                        if($_.MessageData -and $_.MessageData.PSObject.Properties['Kind']){
+                            Write-Information -InformationAction Continue -MessageData $_.MessageData
+                        }else{Add-Content -LiteralPath $logPath -Value ([string]$_.MessageData)}
+                    }elseif($_ -is [System.Management.Automation.WarningRecord]){
+                        Add-Content -LiteralPath $logPath -Value ('WARNING: '+$_)
+                    }elseif($_ -is [System.Management.Automation.ErrorRecord]){throw $_}
+                    else{Write-Output $_}
+                }
+            }
+
+            $cred = $null
+            if ($userName) {
+                $sec = ConvertTo-SecureString -String $password -AsPlainText -Force
+                $cred = New-Object System.Management.Automation.PSCredential($userName, $sec)
+            }
+
+            $scanDirs = New-Object 'System.Collections.Generic.List[string]'
+            $failed = New-Object 'System.Collections.Generic.List[string]'
+            $total = @($targets).Count
+            Log "Batch started: $total target(s)."
+
+            $i = 0
+            foreach ($target in $targets) {
+                $i++
+                Log "=== Target $i of ${total}: $target ==="
+                Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'target'; Index = $i; Total = $total; Dn = $target })
+                $targetWatch = [System.Diagnostics.Stopwatch]::StartNew()
+                try {
+                    # Piped, not assigned: see the note in New-BHJobRunner about
+                    # progress output being swallowed by an assignment.
+                    Invoke-BHBatchAction { Start-BHCollection -BaseDn $target -Server $server -OutputRoot $outRoot `
+                        -Credential $cred -MaxThreads $maxThreads -PageSize $pageSize -CompressOutput:$compressOutput -CollectEndpoints:$collectEndpoints -ResolveExternalNames -ProgressCallback {
+                            param($objects, $edges, $errors, $shardsDone, $shardsTotal, $stage)
+                            Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Objects = $objects; Edges = $edges; Errors = $errors; ShardsDone=$shardsDone;ShardsTotal=$shardsTotal;Stage=$stage })
+                        } } | ForEach-Object {
+                            if ($_ -is [string]) { $scanDirs.Add($_); [pscustomobject]@{ Kind = 'result'; ScanDir = $_ } } else { $_ }
+                        }
+                    Log ("Target {0} finished in {1:hh\:mm\:ss}." -f $i, $targetWatch.Elapsed)
+                }
+                catch {
+                    $failed.Add($target)
+                    Log "FAILED target ${i} ($target): $($_.Exception.Message)"
+                }
+            }
+
+            Log "Scans complete: $($scanDirs.Count) succeeded, $($failed.Count) failed."
+            foreach ($f in $failed) { Log "  failed: $f" }
+
+            if ($autoReport -and $failed.Count -gt 0) {
+                Log 'Automatic reporting skipped because at least one target was incomplete. Completed scans are available in the Report tab.'
+            }
+            elseif ($autoReport -and $scanDirs.Count -gt 0) {
+                try {
+                    $datasets=@($scanDirs.ToArray())
+                    Log "Building report directly from $($datasets.Count) scan folders (no separate merge step) ..."
+                    $reportDir=Join-Path $reportsRoot ('batch-{0:yyyyMMdd-HHmmss}' -f (Get-Date))
+                    $reportPath=Invoke-BHBatchAction { Start-BHReport -DatasetPaths $datasets -OutputDir $reportDir -ProgressCallback {
+                        param($label,$meta)
+                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{Kind='stage';Label=$label;Pct=$(if($meta){$meta.Pct}else{$null})})
+                    } }
+                    $reportPath = @($reportPath)[-1]
+                    Log "Report: $reportPath"
+                    Write-Output ([pscustomobject]@{ Kind = 'report'; ReportPath = $reportPath })
+                }
+                catch {
+                    Log "Merge/report FAILED: $($_.Exception.Message)"
+                    Update-BHRun -Directory (Split-Path (Split-Path $logPath -Parent) -Parent) -Status Failed -ErrorMessage $_.Exception.Message
+                    throw
+                }
+            }
+            $runDirectory=Split-Path (Split-Path $logPath -Parent) -Parent
+            if ($failed.Count -gt 0) { Update-BHRun -Directory $runDirectory -Status Failed -ErrorMessage "$($failed.Count) scan target(s) failed."; throw "$($failed.Count) scan target(s) failed. See the batch log." }
+            if($autoReport){Update-BHRun -Directory $runDirectory -Status Complete -ReportPath $reportPath}else{Update-BHRun -Directory $runDirectory -Status Complete}
+            Log "Open $(Join-Path $runDirectory 'START-HERE.html') for this run."
+            try { & (Join-Path (Split-Path $srcDir -Parent) 'Catalog-BHOutputs.ps1') -Root (Split-Path (Split-Path $runDirectory -Parent) -Parent) } catch { Log ('Catalog refresh: '+$_.Exception.Message) }
+            Log 'Batch finished.'
+        }
+
+        $btnScan.Add_Click({
+            if ([string]::IsNullOrWhiteSpace($txtServer.Text)) {
+                Set-BHStatus $lblScanProgress 'Enter a domain or domain controller first.' $clrWarn
+                $txtServer.Focus() | Out-Null
+                return
+            }
+            # Targets: the ticked OUs, or the single DN box if nothing is ticked.
+            $picked = @($script:checkedDns | Sort-Object)
+            if ($picked.Count -eq 0) { $picked = @($txtBaseDn.Text.Trim()) }
+            $picked = @($picked | Where-Object { $_ })
+            if ($picked.Count -eq 0) {
+                [System.Windows.Forms.MessageBox]::Show('Tick at least one OU (or type a DN) first.', 'BH', 'OK', 'Warning') | Out-Null
+                return
+            }
+
+            # An OU inside another ticked OU is already covered by its parent's
+            # subtree scan; scanning it again would just do the same work twice.
+            $targets = New-Object 'System.Collections.Generic.List[string]'
+            $nested = New-Object 'System.Collections.Generic.List[string]'
+            foreach ($d in $picked) {
+                $inside = $false
+                foreach ($other in $picked) {
+                    if (-not [string]::Equals($other, $d, [System.StringComparison]::OrdinalIgnoreCase) -and
+                        $d.EndsWith(',' + $other, [System.StringComparison]::OrdinalIgnoreCase)) { $inside = $true; break }
+                }
+                if ($inside) { $nested.Add($d) } else { $targets.Add($d) }
+            }
+
+            $btnScan.Enabled = $false
+            $btnCancelScan.Enabled = $true
+            $txtScanLog.Clear()
+            $progScan.Style = 'Marquee'
+            $progScan.MarqueeAnimationSpeed = 30
+            Set-BHStatus $lblScanProgress 'Starting...' $clrWarn
+            $script:scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            $script:targetText = ''
+
+            if ($nested.Count -gt 0) {
+                $txtScanLog.AppendText("Skipping $($nested.Count) OU(s) already covered by a ticked parent OU:`r`n")
+                foreach ($n in $nested) { $txtScanLog.AppendText("  $n`r`n") }
+            }
+            $runRoot=if($txtOut.Text -eq $scansRoot){Join-Path $DataRoot 'runs'}else{Join-Path $txtOut.Text 'runs'}
+            $runInfo=New-BHRun -Root $runRoot -Label ($txtServer.Text+' / '+$targets.Count+' targets') -Targets $targets.ToArray()
+            $script:activeRunDirectory=$runInfo.Directory
+            $logPath = $runInfo.LogPath
+            $txtScanLog.AppendText("Plan: $($targets.Count) target(s), scanned one after another. Log file: $logPath`r`n")
+
+            $jobArgs = @($srcDir, [string[]]$targets.ToArray(), $txtServer.Text, $txtUser.Text, $txtPass.Text, (Join-Path $runInfo.Directory 'data\scans'),
+                         [int]$numThreads.Value, [int]$numPageSize.Value, [bool]$chkAutoReport.Checked, (Join-Path $runInfo.Directory 'data\merged'), (Join-Path $runInfo.Directory 'report'), $logPath,
+                         [bool]$chkCompress.Checked, [bool]$chkEndpoints.Checked)
+
+            $script:scanRunner = New-BHJobRunner -ScriptBlock $script:BatchScanJob -ArgumentList $jobArgs `
+                -OnTick {
+                    $lblScanElapsed.Text = "Elapsed: {0:hh\:mm\:ss}" -f $script:scanStopwatch.Elapsed
+                } `
+                -OnProgress {
+                    param($item)
+                    switch ($item.Kind) {
+                        'target' {
+                            $script:targetText = "Target $($item.Index) of $($item.Total)"
+                            $script:scanIndex = [int]$item.Index
+                            $script:scanTotal = [int]$item.Total
+                            $script:targetWatch = [System.Diagnostics.Stopwatch]::StartNew()
+                            # The bar shows completed targets plus the finished share of the current one.
+                            Set-BHBar $progScan ([int](100 * ($script:scanIndex - 1) / [Math]::Max(1, $script:scanTotal)))
+                            Set-BHStatus $lblScanProgress "$($script:targetText): $($item.Dn)`r`nFinding the containers to scan ..." $clrWarn
+                        }
+                        'progress' {
+                            $targetCount = [Math]::Max(1, [int]$script:scanTotal)
+                            $targetIndex = [Math]::Max(1, [int]$script:scanIndex)
+                            $fraction = if ($item.ShardsTotal -gt 0) { [double]$item.ShardsDone / [double]$item.ShardsTotal } else { 0.0 }
+                            Set-BHBar $progScan ([int](100 * (($targetIndex - 1) + $fraction) / $targetCount))
+                            $seconds = if ($script:targetWatch) { $script:targetWatch.Elapsed.TotalSeconds } else { 0 }
+                            $rate = if ($seconds -ge 5) { '{0:N0} objects/s' -f ([double]$item.Objects / $seconds) } else { 'measuring speed ...' }
+                            $left = ''
+                            if ($item.Stage -like 'Collecting directory*' -and $item.ShardsDone -ge 3 -and $fraction -ge 0.1 -and $fraction -lt 1) {
+                                $left = '   |   rough time left for this target: about {0} (containers differ in size)' -f (Format-BHSpan ([TimeSpan]::FromSeconds($seconds * (1 - $fraction) / $fraction)))
+                            }
+                            $line1 = "$($script:targetText)  |  $($item.Stage)  |  containers finished: $($item.ShardsDone) of $($item.ShardsTotal)"
+                            $line2 = 'Objects {0:N0}   Edges {1:N0}   Errors {2:N0}   |   {3}   |   this target {4}{5}' -f $item.Objects, $item.Edges, $item.Errors, $rate, (Format-BHSpan $script:targetWatch.Elapsed), $left
+                            Set-BHStatus $lblScanProgress "$line1`r`n$line2" ([System.Drawing.Color]::Black)
+                        }
+                        'stage' {
+                            Set-BHBar $progScan $item.Pct
+                            Set-BHStatus $lblScanProgress "$($item.Label)`r`nTotal elapsed $(Format-BHSpan $script:scanStopwatch.Elapsed)" $clrWarn
+                        }
+                        'result' {
+                            $txtScanLog.AppendText("Scan folder: $($item.ScanDir)`r`n")
+                        }
+                        'report' {
+                            $script:lastReportPath = $item.ReportPath
+                            $btnOpenReport.Enabled = $true
+                        }
+                        default {
+                            $txtScanLog.AppendText("$item`r`n")
+                        }
+                    }
+                } `
+                -OnFinished {
+                    param($state, $jobErrors)
+                    if($state -eq 'Completed' -and $jobErrors -and $jobErrors.Count -gt 0){$state='Failed'}
+                    if($state -ne 'Completed' -or ($jobErrors -and $jobErrors.Count -gt 0)){
+                        $runState=if($state -eq 'Stopped'){'Cancelled'}else{'Failed'}
+                        $failureDetail=if($jobErrors -and $jobErrors.Count -gt 0){[string]$jobErrors[0]}else{"Collection ended: $state"}
+                        Update-BHRun -Directory $script:activeRunDirectory -Status $runState -ErrorMessage $failureDetail
+                    }
+                    $btnScan.Enabled = $true
+                    $btnCancelScan.Enabled = $false
+                    $progScan.Style = 'Blocks'; $progScan.Value = if ($state -eq 'Completed') { 100 } else { 0 }
+                    $finalColor = switch ($state) { 'Completed' { $clrOk }; 'Stopped' { $clrWarn }; default { $clrErr } }
+                    Set-BHStatus $lblScanProgress ("Finished: $state in " + (Format-BHSpan $script:scanStopwatch.Elapsed)) $finalColor
+                    if ($jobErrors -and $jobErrors.Count -gt 0) {
+                        foreach ($e in $jobErrors) { $txtScanLog.AppendText("ERROR: $e`r`n") }
+                    }
+                    Refresh-BHDatasetLists
+                }
+        })
+
+        $btnCancelScan.Add_Click({
+            Set-BHStatus $lblScanProgress 'Cancelling...' $clrWarn
+            Stop-BHRunner $script:scanRunner
+        })
+
+        # =======================================================================
+        # Tab 2: Merge
+        # =======================================================================
+        $tabMerge = New-Object System.Windows.Forms.TabPage 'Merge scans'
+        $tabMerge.BackColor = $clrBodyBg
+        $tabMerge.AutoScroll = $true
+        $tabs.TabPages.Add($tabMerge)
+
+        $lblMergeHelp = New-BHLabel 'Select two or more scans/merged datasets to combine into one deduplicated dataset:'
+        $lstScans = New-Object System.Windows.Forms.CheckedListBox
+        $lstScans.Font = $fontBase
+        $lstScans.CheckOnClick = $true
+
+        $btnRefreshScans = New-BHButton 'Refresh list'
+
+        $lblMergeOut = New-BHLabel 'Merged output root:'
+        $txtMergeOut = New-BHTextBox
+        $txtMergeOut.Text = $mergedRoot
+        $btnBrowseMergeOut = New-BHButton 'Browse...'
+
+        $btnMerge = New-BHButton 'Merge selected' -Primary
+        $btnCancelMerge = New-BHButton 'Cancel'
+        $btnCancelMerge.Enabled = $false
+        $progMerge = New-BHProgressBar
+        $lblMergeProgress = New-BHLabel ''
+        $txtMergeLog = New-Object System.Windows.Forms.TextBox
+        $txtMergeLog.Multiline = $true; $txtMergeLog.ScrollBars = 'Vertical'; $txtMergeLog.ReadOnly = $true
+        $txtMergeLog.Font = $fontMono
+        $txtMergeLog.BackColor = [System.Drawing.Color]::White
+
+        $lblMergeHelp.Font = $fontBold
+        $lstScans.IntegralHeight = $false
+        $lstScans.AccessibleName = 'Scans and merged datasets'
+        Set-BHDatasetLayout -Page $tabMerge -Help $lblMergeHelp -Datasets $lstScans `
+            -OutputLabel $lblMergeOut -OutputPath $txtMergeOut -Browse $btnBrowseMergeOut `
+            -Run $btnMerge -Cancel $btnCancelMerge -Progress $progMerge -Status $lblMergeProgress `
+            -Log $txtMergeLog -Extra $btnRefreshScans
+
+        function Refresh-BHDatasetLists {
+            $allDirs = @()
+            foreach ($root in @($scansRoot, $mergedRoot, (Join-Path $DataRoot 'runs'), $txtOut.Text, $txtMergeOut.Text, (Join-Path $txtOut.Text 'runs'))|Select-Object -Unique) {
+                if (Test-Path $root) {
+                    foreach($folder in Get-ChildItem -LiteralPath $root -Directory|Sort-Object Name -Descending){
+                        if((Test-Path (Join-Path $folder.FullName 'scan-metadata.json')) -or (Test-Path (Join-Path $folder.FullName 'merge-metadata.json'))){$allDirs+=$folder.FullName}
+                        elseif(Test-Path (Join-Path $folder.FullName 'run.json')){
+                            foreach($part in 'data\scans','data\merged'){
+                                $datasetRoot=Join-Path $folder.FullName $part
+                                if(Test-Path $datasetRoot){$allDirs+=@(Get-ChildItem -LiteralPath $datasetRoot -Directory|ForEach-Object FullName)}
+                            }
+                        }
+                    }
+                }
+            }
+            $lstScans.Items.Clear()
+            $lstDatasets.Items.Clear()
+            foreach ($dir in @($allDirs|Select-Object -Unique)) {
+                if ([IO.Path]::GetFileName($dir).StartsWith('.')) { continue }
+                try { Assert-BHDatasetsReady -DatasetPaths @($dir) } catch { continue }
+                [void]$lstScans.Items.Add($dir)
+                [void]$lstDatasets.Items.Add($dir)
+            }
+        }
+
+        $btnRefreshScans.Add_Click({ Refresh-BHDatasetLists })
+        $btnBrowseMergeOut.Add_Click({
+            $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dlg.Description = 'Choose a folder for the merged dataset'
+            if (Test-Path $txtMergeOut.Text) { $dlg.SelectedPath = $txtMergeOut.Text }
+            if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtMergeOut.Text = $dlg.SelectedPath }
+        })
+
+        $btnMerge.Add_Click({
+            $selected = @($lstScans.CheckedItems)
+            if ($selected.Count -lt 2) {
+                [System.Windows.Forms.MessageBox]::Show('Pick at least two scans to merge.', 'BH', 'OK', 'Warning') | Out-Null
+                return
+            }
+            $btnMerge.Enabled = $false
+            $btnCancelMerge.Enabled = $true
+            $txtMergeLog.Clear()
+            $progMerge.Style = 'Marquee'; $progMerge.MarqueeAnimationSpeed = 30
+            Set-BHStatus $lblMergeProgress 'Merging...' $clrWarn
+            Start-BHOperation 'merge' $txtMergeOut.Text
+
+            $sb = {
+                param($srcDir, $scanPaths, $outRoot)
+                $ErrorActionPreference = 'Stop'
+                Import-Module (Join-Path $srcDir 'BH.Core.psm1') -Force -DisableNameChecking
+                Initialize-BHNative
+                try {
+                    Start-BHMerge -ScanPaths $scanPaths -OutputRoot $outRoot -ProgressCallback {
+                        param($phase, $label, $count, $done, $total)
+                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Phase = $phase; Label = $label; Count = $count; Done = $done; Total = $total })
+                    } | ForEach-Object {
+                        if ($_ -is [string]) { [pscustomobject]@{ Kind = 'result'; MergeDir = $_ } } else { $_ }
+                    }
+                }
+                catch {
+                    Write-Output ([pscustomobject]@{ Kind = 'error'; Message = $_.Exception.Message })
+                    throw
+                }
+            }
+
+            $script:mergeRunner = New-BHJobRunner -ScriptBlock $sb -ArgumentList @($srcDir, [string[]]$selected, $txtMergeOut.Text) `
+                -OnTick {
+                    $text = Get-BHOperationText 'merge'
+                    if ($text) { Set-BHStatus $lblMergeProgress $text ([System.Drawing.Color]::Black) }
+                } `
+                -OnProgress {
+                    param($item)
+                    switch ($item.Kind) {
+                        'progress' {
+                            if ($item.Phase -eq 'phase') {
+                                $finishedStep = Set-BHOperationProgress 'merge' $item.Label $null
+                                if ($finishedStep) { $txtMergeLog.AppendText("$finishedStep`r`n") }
+                                $txtMergeLog.AppendText(("[{0}] {1}`r`n" -f (Format-BHSpan $script:ops['merge'].Total.Elapsed), $item.Label))
+                                Set-BHBar $progMerge $null
+                            }
+                            else {
+                                $detail = if ($item.Count) { '{0}, {1:N0} records' -f $item.Label, $item.Count } else { [string]$item.Label }
+                                [void](Set-BHOperationProgress 'merge' $null $detail)
+                                Set-BHBar $progMerge $(if ($item.Total -gt 0) { [int](100 * [double]$item.Done / [double]$item.Total) } else { $null })
+                            }
+                        }
+                        'result' { $txtMergeLog.AppendText("Merged dataset: $($item.MergeDir)`r`n") }
+                        'error' { Set-BHStatus $lblMergeProgress "Failed: $($item.Message)" $clrErr; $txtMergeLog.AppendText("ERROR: $($item.Message)`r`n") }
+                    }
+                } `
+                -OnFinished {
+                    param($state, $jobErrors)
+                    $btnMerge.Enabled = $true
+                    $btnCancelMerge.Enabled = $false
+                    $progMerge.Style = 'Blocks'; $progMerge.Value = if ($state -eq 'Completed') { 100 } else { 0 }
+                    $finalColor = switch ($state) { 'Completed' { $clrOk }; 'Stopped' { $clrWarn }; default { $clrErr } }
+                    $summary = Complete-BHOperation 'merge'
+                    if ($summary) {
+                        if ($summary.LastStep) { $txtMergeLog.AppendText("$($summary.LastStep)`r`n") }
+                        $txtMergeLog.AppendText("Total time $($summary.Total)`r`n")
+                    }
+                    Set-BHStatus $lblMergeProgress $(if ($summary) { "Finished: $state in $($summary.Total)" } else { "Finished: $state" }) $finalColor
+                    if ($jobErrors -and $jobErrors.Count -gt 0) { foreach ($e in $jobErrors) { $txtMergeLog.AppendText("ERROR: $e`r`n") } }
+                    Refresh-BHDatasetLists
+                }
+        })
+
+        $btnCancelMerge.Add_Click({
+            Set-BHStatus $lblMergeProgress 'Cancelling...' $clrWarn
+            Stop-BHRunner $script:mergeRunner
+        })
+
+        # =======================================================================
+        # Tab 3: Report
+        # =======================================================================
+        $tabReport = New-Object System.Windows.Forms.TabPage 'Report'
+        $tabReport.BackColor = $clrBodyBg
+        $tabReport.AutoScroll = $true
+        $tabs.TabPages.Add($tabReport)
+
+        $lblReportHelp = New-BHLabel 'Select one or more scans/merged datasets to report on:'
+        $chkReportCsv = New-Object System.Windows.Forms.CheckBox
+        $chkReportCsv.Text = 'Export CSV'
+        $chkReportCsv.AutoSize = $true
+        $chkCompareReport = New-Object System.Windows.Forms.CheckBox
+        $chkCompareReport.Text = 'Compare previous index'
+        $chkCompareReport.AutoSize = $true
+        $reportOptions = New-Object System.Windows.Forms.FlowLayoutPanel
+        $reportOptions.WrapContents = $false
+        $reportOptions.Dock = 'Fill'
+        $chkEnrichGroups=[Windows.Forms.CheckBox]::new()
+        $chkEnrichGroups.Text='Read missing group types (import)'
+        $chkEnrichGroups.Name='EnrichImportedGroups';$chkEnrichGroups.AutoSize=$true
+        $chkEnrichGroups.AccessibleDescription='Optional read-only LDAP groupType lookups using the Domain / DC and identity from the connection tab. Existing group classifications remain unchanged.'
+        $reportOptions.FlowDirection='TopDown'
+        $reportOptions.Controls.AddRange(@($chkReportCsv, $chkCompareReport,$chkEnrichGroups))
+        . (Join-Path $srcDir 'BH.Analysis.Gui.ps1')
+        $script:reportAnalysis = @{ Mode = 'Quick'; Depth = 8; Visits = 50000L; Seconds = 0 }
+        $analysisBar = [System.Windows.Forms.FlowLayoutPanel]::new()
+        $analysisBar.Dock = 'Fill'; $analysisBar.WrapContents = $false
+        $btnAnalysisSettings = New-BHButton 'Analysis settings...'
+        $btnAnalysisSettings.Size = [Drawing.Size]::new(146,30)
+        $chkResumeAnalysis = [System.Windows.Forms.CheckBox]::new()
+        $chkResumeAnalysis.Text = 'Resume saved analysis'; $chkResumeAnalysis.AutoSize = $true; $chkResumeAnalysis.Enabled = $false
+        $lblAnalysisSummary = New-BHLabel 'Quick: 8 hops, 50,000 identities; 200-row HTML preview'
+        $lblAnalysisSummary.AutoSize = $true; $lblAnalysisSummary.Margin = [System.Windows.Forms.Padding]::new(8,7,0,0)
+        $analysisBar.Controls.AddRange(@($btnAnalysisSettings, $chkResumeAnalysis, $lblAnalysisSummary))
+        $btnAnalysisSettings.Add_Click({
+            $choice = Show-BHAnalysisSettings $form $script:reportAnalysis
+            if ($choice) {
+                $script:reportAnalysis = $choice
+                $chkResumeAnalysis.Enabled = $choice.Mode -eq 'Deep'
+                if (-not $chkResumeAnalysis.Enabled) { $chkResumeAnalysis.Checked = $false }
+                $lblAnalysisSummary.Text = "$($choice.Mode): hops $($choice.Depth), identities $($choice.Visits), seconds $($choice.Seconds) (0 = no cap)"
+            }
+        })
+        $lstDatasets = New-Object System.Windows.Forms.CheckedListBox
+        $lstDatasets.Font = $fontBase
+        $lstDatasets.CheckOnClick = $true
+
+        $lblReportOut = New-BHLabel 'Report output folder:'
+        $txtReportOut = New-BHTextBox
+        $txtReportOut.Text = (Join-Path $reportsRoot 'latest')
+        $btnBrowseReportOut = New-BHButton 'Browse...'
+
+        $btnReport = New-BHButton 'Generate report' -Primary
+        $btnImportSharpHound = New-BHButton 'Import SharpHound...'
+        $btnCancelReport = New-BHButton 'Cancel'
+        $btnCancelReport.Enabled = $false
+        $btnOpenReport = New-BHButton 'Open report.html'
+        $btnOpenReport.Enabled = $false
+        $btnLatestViewer = New-BHButton 'Open latest in Viewer'
+        $btnLatestViewer.Size = [Drawing.Size]::new(170,30)
+        $analysisBar.Controls.Add($btnLatestViewer)
+        $btnLatestViewer.Add_Click({
+            try{
+                $report=Get-BHLatestReport -DataRoot $DataRoot
+                if($script:lastReportPath -and (Test-Path -LiteralPath $script:lastReportPath)){
+                    $rememberedGraph=Join-Path (Split-Path $script:lastReportPath -Parent) 'graph.sqlite'
+                    if((Test-Path -LiteralPath $rememberedGraph) -and -not (Test-Path -LiteralPath (Join-Path (Split-Path $rememberedGraph -Parent) 'report.lock'))){
+                        if(-not $report -or (Get-Item -LiteralPath $rememberedGraph).LastWriteTimeUtc -gt (Get-Item -LiteralPath (Join-Path (Split-Path $report -Parent) 'graph.sqlite')).LastWriteTimeUtc){$report=$script:lastReportPath}
+                    }
+                }
+                if(-not $report){throw 'No completed report is available. Generate a report first.'}
+                $viewer=Join-Path $PSScriptRoot 'BHTest.Viewer.ps1'
+                $graph=Join-Path (Split-Path $report -Parent) 'graph.sqlite'
+                if(-not (Test-Path -LiteralPath $graph)){throw 'The report has no graph.sqlite alongside it.'}
+                Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -WindowStyle Hidden -ArgumentList ('-NoProfile -STA -File "'+$viewer+'" -IndexPath "'+$graph+'"')
+            }catch{[void][Windows.Forms.MessageBox]::Show($_.Exception.Message,'Open latest report')}
+        })
+        $progReport = New-BHProgressBar
+        $lblReportProgress = New-BHLabel ''
+        $txtReportLog = New-Object System.Windows.Forms.TextBox
+        $txtReportLog.Multiline = $true; $txtReportLog.ScrollBars = 'Vertical'; $txtReportLog.ReadOnly = $true
+        $txtReportLog.Font = $fontMono
+        $txtReportLog.BackColor = [System.Drawing.Color]::White
+
+        $lblReportHelp.Font = $fontBold
+        $lstDatasets.IntegralHeight = $false
+        $lstDatasets.AccessibleName = 'Report datasets'
+        Set-BHDatasetLayout -Page $tabReport -Help $lblReportHelp -Datasets $lstDatasets `
+            -OutputLabel $lblReportOut -OutputPath $txtReportOut -Browse $btnBrowseReportOut `
+            -Run $btnReport -Cancel $btnCancelReport -Progress $progReport -Status $lblReportProgress `
+            -Log $txtReportLog -Extra $reportOptions -ExtraWidth 290 -Open $btnOpenReport -Import $btnImportSharpHound -AnalysisOptions $analysisBar -HeaderHeight 96
+
+        $script:lastReportPath = $null
+        $script:lastReportPath=Get-BHLatestReport -DataRoot $DataRoot
+        $btnOpenReport.Enabled=[bool]$script:lastReportPath
+
+        $btnBrowseReportOut.Add_Click({
+            $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dlg.Description = 'Choose a folder for the report output'
+            if (Test-Path $txtReportOut.Text) { $dlg.SelectedPath = $txtReportOut.Text }
+            if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $txtReportOut.Text = $dlg.SelectedPath }
+        })
+
+        $btnImportSharpHound.Add_Click({
+            $script:activeReportAnalysis = $null
+            $dialog = [System.Windows.Forms.OpenFileDialog]::new()
+            try {
+                $dialog.Title = 'Select SharpHound ZIP or JSON exports'
+                $dialog.Filter = 'SharpHound exports (*.zip;*.json)|*.zip;*.json'
+                $dialog.Multiselect = $true
+                if ($dialog.ShowDialog($form) -ne 'OK') { return }
+                $inputs = $dialog.FileNames
+            }
+            finally { $dialog.Dispose() }
+
+            if($chkEnrichGroups.Checked -and [string]::IsNullOrWhiteSpace($txtServer.Text)){
+                [void][Windows.Forms.MessageBox]::Show($form,'Enter a domain controller on the connection tab for the optional read-only group lookups, or clear the group-type import option.','Select a DC');return
+            }
+            $importCredential=$null
+            if($chkEnrichGroups.Checked -and -not [string]::IsNullOrWhiteSpace($txtUser.Text)){
+                $importSecret=[Security.SecureString]::new()
+                if($txtPass.Text.Length){$importSecret=ConvertTo-SecureString $txtPass.Text -AsPlainText -Force}
+                $importCredential=[Management.Automation.PSCredential]::new($txtUser.Text.Trim(),$importSecret)
+            }
+            $btnImportSharpHound.Enabled = $false
+            $btnReport.Enabled = $false
+            $btnCancelReport.Enabled = $true
+            $txtReportLog.Clear()
+            $progReport.Style = 'Marquee'
+            $progReport.MarqueeAnimationSpeed = 30
+            Set-BHStatus $lblReportProgress 'Reading SharpHound exports...' $clrWarn
+            $importJob = {
+                param($srcDir, $inputs, $root,$enrichGroups,$groupServer,$groupCredential)
+                $ErrorActionPreference = 'Stop'
+                Import-Module (Join-Path $srcDir 'BH.Core.psm1') -DisableNameChecking
+                Import-Module (Join-Path $srcDir 'BH.SharpHound.psm1') -DisableNameChecking
+                try {
+                    $dataset = Start-BHSharpHoundImport -InputPaths $inputs -OutputRoot $root -EnrichGroupTypes:$enrichGroups -Server $groupServer -Credential $groupCredential -ProgressCallback {
+                        param($label)
+                        Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Label = $label })
+                    }
+                    $importMeta=Get-Content -LiteralPath (Join-Path $dataset 'scan-metadata.json') -Raw|ConvertFrom-Json
+                    [pscustomobject]@{ Kind = 'imported'; Dataset = $dataset; GroupTypeEnrichment=$importMeta.GroupTypeEnrichment }
+                }
+                catch {
+                    [pscustomobject]@{ Kind = 'error'; Message = $_.Exception.Message }
+                    throw
+                }
+            }
+            $script:importedDataset = $null
+            $script:importedGroupEnrichment=$null
+            $script:reportRunner = New-BHJobRunner -ScriptBlock $importJob -ArgumentList @($srcDir, [string[]]$inputs, $scansRoot,[bool]$chkEnrichGroups.Checked,$txtServer.Text,$importCredential) `
+                -OnProgress {
+                    param($item)
+                    if ($item.Kind -eq 'progress') {
+                        Set-BHStatus $lblReportProgress $item.Label $clrWarn
+                        $txtReportLog.AppendText("$($item.Label)`r`n")
+                    }
+                    elseif ($item.Kind -eq 'imported') { $script:importedDataset = $item.Dataset;$script:importedGroupEnrichment=$item.GroupTypeEnrichment }
+                    elseif ($item.Kind -eq 'error') { $txtReportLog.AppendText("$($item.Message)`r`n") }
+                } `
+                -OnFinished {
+                    param($state, $jobErrors)
+                    $btnImportSharpHound.Enabled = $true
+                    $btnReport.Enabled = $true
+                    $btnCancelReport.Enabled = $false
+                    $progReport.Style = 'Blocks'
+                    $progReport.Value = if ($state -eq 'Completed') { 100 } else { 0 }
+                    if ($script:importedDataset) {
+                        Refresh-BHDatasetLists
+                        $position = $lstDatasets.Items.IndexOf($script:importedDataset)
+                        if ($position -ge 0) { $lstDatasets.SetItemChecked($position, $true) }
+                        if($script:importedGroupEnrichment){
+                            $e=$script:importedGroupEnrichment
+                            Set-BHStatus $lblReportProgress ("Import complete. Group lookups: $($e.Status) ($($e.Resolved) resolved). Generate report.") $(if($e.Status -eq 'Completed'){$clrOk}else{$clrWarn})
+                        }else{Set-BHStatus $lblReportProgress 'SharpHound import complete. Generate the report to explore it.' $clrOk}
+                    }
+                    else {
+                        Set-BHStatus $lblReportProgress "SharpHound import: $state" $clrWarn
+                        foreach ($errorRecord in $jobErrors) { $txtReportLog.AppendText("$errorRecord`r`n") }
+                    }
+                }
+        })
+
+        $btnReport.Add_Click({
+            $selected = @($lstDatasets.CheckedItems)
+            if ($selected.Count -lt 1) {
+                [System.Windows.Forms.MessageBox]::Show('Pick at least one scan or merged dataset.', 'BH', 'OK', 'Warning') | Out-Null
+                return
+            }
+            $baselinePath = $null
+            if ($chkCompareReport.Checked) {
+                $dialog = [System.Windows.Forms.OpenFileDialog]::new()
+                try {
+                    $dialog.Title = 'Select graph.sqlite from the previous report'
+                    $dialog.Filter = 'BHTest graph index (*.sqlite)|*.sqlite'
+                    if ($dialog.ShowDialog($form) -ne 'OK') { return }
+                    $baselinePath = $dialog.FileName
+                }
+                finally { $dialog.Dispose() }
+            }
+            $btnReport.Enabled = $false
+            $btnAnalysisSettings.Enabled = $false; $chkResumeAnalysis.Enabled = $false
+            $script:lastAnalysisResult = $null
+            $script:activeReportAnalysis = @{ Mode = $script:reportAnalysis.Mode; CancelFile = (Join-Path ([IO.Path]::GetFullPath($txtReportOut.Text)) 'analysis.cancel') }
+            if($chkEnrichGroups.Checked -and [string]::IsNullOrWhiteSpace($txtServer.Text)){
+                [void][Windows.Forms.MessageBox]::Show($form,'Enter a domain controller on the connection tab for the optional read-only group lookups, or clear the group-type import option.','Select a DC');return
+            }
+            $importCredential=$null
+            if($chkEnrichGroups.Checked -and -not [string]::IsNullOrWhiteSpace($txtUser.Text)){
+                $importSecret=[Security.SecureString]::new()
+                if($txtPass.Text.Length){$importSecret=ConvertTo-SecureString $txtPass.Text -AsPlainText -Force}
+                $importCredential=[Management.Automation.PSCredential]::new($txtUser.Text.Trim(),$importSecret)
+            }
+            $btnImportSharpHound.Enabled = $false
+            $btnCancelReport.Enabled = $true
+            $btnOpenReport.Enabled = $false
+            $script:lastReportPath = $null
+            $txtReportLog.Clear()
+            $progReport.Style = 'Marquee'; $progReport.MarqueeAnimationSpeed = 30
+            Set-BHStatus $lblReportProgress 'Starting...' $clrWarn
+            Start-BHOperation 'report' $txtReportOut.Text
+
+            $sb = {
+                param($srcDir, $datasetPaths, $outDir, $exportCsv, $baselinePath, $settings, $resume)
+                $ErrorActionPreference = 'Stop'
+                Import-Module (Join-Path $srcDir 'BH.Core.psm1') -Force -DisableNameChecking
+                Import-Module (Join-Path $srcDir 'BH.Report.psm1') -Force -DisableNameChecking
+                Initialize-BHNative
+                try {
+                    Start-BHReport -DatasetPaths $datasetPaths -OutputDir $outDir -ExportCsv:$exportCsv -BaselineIndexPath $baselinePath `
+                        -AnalysisMode $settings.Mode -AnalysisDepth $settings.Depth -AnalysisVisitLimit $settings.Visits -AnalysisSeconds $settings.Seconds -ResumeAnalysis:$resume -ProgressCallback {
+                        param($label, $meta) Write-Information -InformationAction Continue -MessageData ([pscustomobject]@{ Kind = 'progress'; Label = $label; Transient = [bool]$meta; Pct = $(if ($meta) { $meta.Pct } else { $null }) })
+                    } | ForEach-Object {
+                        if ($_ -is [string]) {
+                            $db = [BH.Native.GraphIndex]::new((Join-Path (Split-Path $_ -Parent) 'graph.sqlite'), $false)
+                            try { $analysisState = $db.DiskAnalysisState() } finally { $db.Dispose() }
+                            [pscustomobject]@{ Kind = 'result'; ReportPath = $_; AnalysisStatus = $analysisState.Status; StopReason = $analysisState.StopReason }
+                        } else { $_ }
+                    }
+                }
+                catch {
+                    Write-Output ([pscustomobject]@{ Kind = 'error'; Message = $_.Exception.Message })
+                    throw
+                }
+            }
+
+            $script:reportRunner = New-BHJobRunner -ScriptBlock $sb -ArgumentList @($srcDir, [string[]]$selected, $txtReportOut.Text, $chkReportCsv.Checked, $baselinePath, $script:reportAnalysis, $chkResumeAnalysis.Checked) `
+                -OnTick {
+                    $text = Get-BHOperationText 'report'
+                    if ($text) { Set-BHStatus $lblReportProgress $text ([System.Drawing.Color]::Black) }
+                } `
+                -OnProgress {
+                    param($item)
+                    switch ($item.Kind) {
+                        'progress' {
+                            $elapsed = if ($script:ops['report']) { Format-BHSpan $script:ops['report'].Total.Elapsed } else { '' }
+                            if ($item.Transient) {
+                                # Loading detail: shown in the status line, not added to the log.
+                                [void](Set-BHOperationProgress 'report' $null $item.Label)
+                                Set-BHBar $progReport $item.Pct
+                            }
+                            elseif ($item.Label -like 'Analysis:*') {
+                                # Analysis updates arrive often; keep them as the step detail and in the log.
+                                [void](Set-BHOperationProgress 'report' 'Analyzing exposure paths' $item.Label)
+                                $txtReportLog.AppendText("[$elapsed] $($item.Label)`r`n")
+                                Set-BHBar $progReport $null
+                            }
+                            else {
+                                $finishedStep = Set-BHOperationProgress 'report' $item.Label $null
+                                if ($finishedStep) { $txtReportLog.AppendText("$finishedStep`r`n") }
+                                $txtReportLog.AppendText("[$elapsed] $($item.Label)`r`n")
+                                Set-BHBar $progReport $null
+                            }
+                        }
+                        'result' { $script:lastReportPath = $item.ReportPath; $script:lastAnalysisResult = $item; $txtReportLog.AppendText("Report: $($item.ReportPath)`r`nAnalysis: $($item.AnalysisStatus) - $($item.StopReason)`r`n") }
+                        'error' { Set-BHStatus $lblReportProgress "Failed: $($item.Message)" $clrErr; $txtReportLog.AppendText("ERROR: $($item.Message)`r`n") }
+                    }
+                } `
+                -OnFinished {
+                    param($state, $jobErrors)
+                    $btnReport.Enabled = $true
+                    $btnAnalysisSettings.Enabled = $true; $chkResumeAnalysis.Enabled = $script:reportAnalysis.Mode -eq 'Deep'
+                    $script:activeReportAnalysis = $null
+                    $btnImportSharpHound.Enabled = $true
+                    $btnCancelReport.Enabled = $false
+                    $progReport.Style = 'Blocks'; $progReport.Value = if ($state -eq 'Completed') { 100 } else { 0 }
+                    $finalColor = switch ($state) { 'Completed' { $clrOk }; 'Stopped' { $clrWarn }; default { $clrErr } }
+                    $summary = Complete-BHOperation 'report'
+                    if ($summary) {
+                        if ($summary.LastStep) { $txtReportLog.AppendText("$($summary.LastStep)`r`n") }
+                        $txtReportLog.AppendText("Total time $($summary.Total)`r`n")
+                    }
+                    Set-BHStatus $lblReportProgress $(if ($summary) { "Finished: $state in $($summary.Total)" } else { "Finished: $state" }) $finalColor
+                    if ($script:lastAnalysisResult) {
+                        $color = if ($script:lastAnalysisResult.AnalysisStatus -eq 'Completed') { $clrOk } else { $clrWarn }
+                        Set-BHStatus $lblReportProgress "Report ready. Analysis: $($script:lastAnalysisResult.AnalysisStatus)" $color
+                    }
+                    if ($jobErrors -and $jobErrors.Count -gt 0) { foreach ($e in $jobErrors) { $txtReportLog.AppendText("ERROR: $e`r`n") } }
+                    if ($script:lastReportPath) {
+                        $btnOpenReport.Enabled = $true
+                        [ordered]@{ReportPath=$script:lastReportPath;SavedUtc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $DataRoot 'latest-report.json') -Encoding UTF8
+                    }
+                }
+        })
+
+        $btnCancelReport.Add_Click({
+            if ($script:activeReportAnalysis -and $script:activeReportAnalysis.Mode -eq 'Deep') {
+                [void][IO.Directory]::CreateDirectory((Split-Path $script:activeReportAnalysis.CancelFile -Parent))
+                [IO.File]::WriteAllText($script:activeReportAnalysis.CancelFile, 'cancel')
+                Set-BHStatus $lblReportProgress 'Deep cancellation requested. Preparation/comparison may finish; traversal saves a checkpoint.' $clrWarn
+                return
+            }
+            Set-BHStatus $lblReportProgress 'Cancelling...' $clrWarn
+            Stop-BHRunner $script:reportRunner
+        })
+
+        $btnOpenReport.Add_Click({
+            if ($script:lastReportPath -and (Test-Path $script:lastReportPath)) {
+                Start-Process $script:lastReportPath
+            }
+        })
+
+        . (Join-Path $srcDir 'BH.PathExplorer.ps1')
+        $pathExplorer = New-BHPathExplorer -ReportsRoot $reportsRoot -GetLastReport { $script:lastReportPath }
+        $tabs.TabPages.Add($pathExplorer)
+
+        # ---- Status strip ------------------------------------------------------
+        $statusStrip = New-Object System.Windows.Forms.StatusStrip
+        $statusStrip.BackColor = $clrSurface
+        $statusStrip.ForeColor = $clrMuted
+        $statusStrip.SizingGrip = $false
+        $statusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
+        $statusLabel.Text = "Data folder: $DataRoot"
+        $statusLabel.Spring = $true
+        $statusLabel.TextAlign = 'MiddleLeft'
+        [void]$statusStrip.Items.Add($statusLabel)
+        $form.Controls.Add($statusStrip)
+
+        # WinForms docks the LAST-added control first, so a Fill control added
+        # before the banner/status strip ends up laid out underneath them: the
+        # tab strip was hidden behind the banner.
+        # Bringing the tabs to the front makes them dock last, in the space
+        # that is actually left.
+        $tabs.BringToFront()
+
+        Refresh-BHDatasetLists
+        if ($lstScans.Items.Count -eq 0) {
+            $lblMergeProgress.Text = 'Completed scans appear here after collection.'
+            $lblReportProgress.Text = 'Run a scan to create your first report dataset.'
+        }
+        Load-BHGuiSettings
+        if($Credential){
+            $txtUser.Text=$Credential.UserName
+            $txtPass.Text=$Credential.GetNetworkCredential().Password
+        }
+        $form.Add_FormClosing({
+            param($s, $e)
+            if ($script:scanRunner -and $script:scanRunner.Job -and $script:scanRunner.Job.State -eq 'Running') {
+                $answer = [System.Windows.Forms.MessageBox]::Show(
+                    'A scan is still running. Closing this window stops it (the log file keeps what finished so far). Close anyway?',
+                    'BH', 'YesNo', 'Warning')
+                if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { $e.Cancel = $true; return }
+            }
+            Save-BHGuiSettings
+            foreach($runner in @($script:scanRunner,$script:mergeRunner,$script:reportRunner,$script:dcDiscoveryRunner,$script:connRunner)){
+                Stop-BHRunner $runner
+            }
+            if($script:activeRunDirectory -and (Test-Path (Join-Path $script:activeRunDirectory 'run.json'))){
+                $closingRun=Get-Content (Join-Path $script:activeRunDirectory 'run.json') -Raw|ConvertFrom-Json
+                if($closingRun.Status -eq 'Running'){
+                    Update-BHRun -Directory $script:activeRunDirectory -Status Cancelled -ErrorMessage 'Window closed before collection completed.'
+                }
+            }
+            $txtPass.Clear()
+        })
+        $form.Add_Shown({ $form.Activate(); Start-BHDcDiscovery })
+        [void]$form.ShowDialog()
+    }
+}

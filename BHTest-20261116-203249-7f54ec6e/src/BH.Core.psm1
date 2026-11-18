@@ -427,7 +427,7 @@ function New-BHLdapConnectionBounded {
 function Get-BHOuTree {
     <#
         .SYNOPSIS
-        Lists the domain root plus every organizationalUnit under it (flat,
+        Lists the domain root, the top-level containers directly under it, plus every organizationalUnit under it (flat,
         with ParentDn for the caller to rebuild the hierarchy -- the GUI
         uses this to build a TreeView so a scan target can be clicked
         instead of typed). Uses a short connection timeout and a small
@@ -454,6 +454,21 @@ function Get-BHOuTree {
 
     $list = New-Object System.Collections.Generic.List[pscustomobject]
     $list.Add([pscustomobject]@{ Dn = $root; Name = $root; ParentDn = $null })
+
+    # Top-level containers (CN=Users, CN=Computers, CN=Builtin, ...) are not OUs, so the OU search below never returns them.
+    # They hold the built-in privileged groups, so list the ones directly under the domain root as well.
+    # Failing here must not break the OU list.
+    try {
+        foreach ($entry in (Invoke-BHPagedSearch -ConnectionFactory $factory -BaseDn $root `
+            -Filter '(|(objectClass=container)(objectClass=builtinDomain))' -Attributes @('distinguishedName', 'name') `
+            -Scope ([System.DirectoryServices.Protocols.SearchScope]::OneLevel) -PageSize 500 -MaxRetries 1)) {
+
+            $dn = $entry.DistinguishedName
+            $name = if ($entry.Attributes.Contains('name')) { $entry.Attributes['name'][0].ToString() } else { $dn }
+            $list.Add([pscustomobject]@{ Dn = $dn; Name = "$name (container)"; ParentDn = $root })
+        }
+    }
+    catch { }
 
     foreach ($entry in (Invoke-BHPagedSearch -ConnectionFactory $factory -BaseDn $root `
         -Filter '(objectClass=organizationalUnit)' -Attributes @('distinguishedName', 'name') `

@@ -823,7 +823,7 @@ switch ($PSCmdlet.ParameterSetName) {
         # its own remembered config -- e.g. separate machines pointed at
         # separate scan output roots.
         $script:settingsPath = Join-Path $DataRoot 'gui-settings.json'
-        $script:ouCachePath = Join-Path $DataRoot 'ou-cache.tsv'
+        $script:ouCachePath = Join-Path $DataRoot 'ou-cache-v2.tsv'
 
         function Save-BHGuiSettings {
             # Best-effort only: a save failure here should never block
@@ -859,7 +859,7 @@ switch ($PSCmdlet.ParameterSetName) {
                 if (-not $idx) { return $false }
                 $script:ouIndex = $idx
                 Show-BHOuTree
-                Set-BHStatus $lblConnStatus ("Loaded {0} OU(s) from cache in {1:N0} ms (saved {2}). Click 'Connect and load OUs' to refresh." -f $idx.Count, $sw.Elapsed.TotalMilliseconds, $idx.SavedUtc) $clrWarn
+                Set-BHStatus $lblConnStatus ("Loaded {0} OU(s) and container(s) from cache in {1:N0} ms (saved {2}). Click 'Connect and load OUs' to refresh." -f $idx.Count, $sw.Elapsed.TotalMilliseconds, $idx.SavedUtc) $clrWarn
                 return $true
             }
             catch { return $false }
@@ -983,7 +983,7 @@ switch ($PSCmdlet.ParameterSetName) {
                         'result' {
                             Populate-BHOuTree -Items $item.Ous -Server $txtServer.Text
                             Save-BHGuiSettings
-                            Set-BHStatus $lblConnStatus "Connected -- $($item.Ous.Count) OU(s)/domain root found. Click one to set the scan target. (Cached for next time.)" $clrOk
+                            Set-BHStatus $lblConnStatus "Connected -- $($item.Ous.Count) OU(s), top-level container(s) and the domain root found. Click one to set the scan target. (Cached for next time.)" $clrOk
                         }
                         'error' { Set-BHStatus $lblConnStatus "Failed: $($item.Message)" $clrErr }
                     }

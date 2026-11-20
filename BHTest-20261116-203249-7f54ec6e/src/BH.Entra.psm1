@@ -22,6 +22,9 @@ function Get-BHEntraCertificate {
     throw "No certificate with thumbprint $Thumbprint was found in CurrentUser\My or LocalMachine\My."
 }
 
+# Task.Wait throws when the task failed; the failure is reported after the loop instead.
+function Wait-BHTask($Task, [int]$Milliseconds) { try { return $Task.Wait($Milliseconds) } catch { return $true } }
+
 function Format-BHDuration([double]$Seconds) {
     if ($Seconds -lt 0 -or [double]::IsInfinity($Seconds) -or [double]::IsNaN($Seconds)) { return 'unknown' }
     $span = [TimeSpan]::FromSeconds([Math]::Round($Seconds))
@@ -110,7 +113,7 @@ Resume: pass -ResumeDirectory with the folder of an interrupted run.
     $task = $collector.Start()
     $lastLine = [DateTime]::MinValue; $lastRequests = 0L; $lastTime = 0.0
     try {
-        while (-not $task.Wait(500)) {
+        while (-not (Wait-BHTask $task 500)) {
             $p = $collector.Progress
             if (([DateTime]::UtcNow - $lastLine).TotalSeconds -lt 5) { continue }
             $lastLine = [DateTime]::UtcNow

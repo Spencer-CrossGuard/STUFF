@@ -86,7 +86,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if ($PSBoundParameters.Count -eq 0 -and [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { if ($PSVersionTable.PSEdition -eq 'Desktop') { $env:PSModulePath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules;$env:ProgramFiles\WindowsPowerShell\Modules" }; $hostExe = (Get-Process -Id $PID).Path; & $hostExe -NoProfile -STA -File $PSCommandPath; if ($LASTEXITCODE) { Read-Host 'Press Enter to close' }; exit $LASTEXITCODE }
+$script:consoleHidden = $false
+if ($PSBoundParameters.Count -eq 0) {
+    # Hide the PowerShell window when this script owns it (double-click launch). A console you opened yourself is left alone.
+    try {
+        if (-not ('TesseraConsole' -as [type])) { Add-Type -TypeDefinition 'public static class TesseraConsole { [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern System.IntPtr GetConsoleWindow(); [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint GetConsoleProcessList(uint[] list, uint count); [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(System.IntPtr window, int command); public static bool HideIfOwned() { System.IntPtr w = GetConsoleWindow(); if (w == System.IntPtr.Zero) return false; if (GetConsoleProcessList(new uint[4], 4) > 1) return false; ShowWindow(w, 0); return true; } public static void Show() { System.IntPtr w = GetConsoleWindow(); if (w != System.IntPtr.Zero) ShowWindow(w, 5); } }' -ErrorAction Stop }
+        $script:consoleHidden = [TesseraConsole]::HideIfOwned()
+    } catch { }
+}
+trap { if ($script:consoleHidden) { try { [TesseraConsole]::Show() } catch { }; Write-Host ('Tessera stopped: ' + $_.Exception.Message) -ForegroundColor Red; Read-Host 'Press Enter to close' }; break }
+if ($PSBoundParameters.Count -eq 0 -and [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { if ($PSVersionTable.PSEdition -eq 'Desktop') { $env:PSModulePath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules;$env:ProgramFiles\WindowsPowerShell\Modules" }; $hostExe = (Get-Process -Id $PID).Path; & $hostExe -NoProfile -STA -File $PSCommandPath; if ($LASTEXITCODE) { if ($script:consoleHidden) { try { [TesseraConsole]::Show() } catch { } }; Read-Host 'Press Enter to close' }; exit $LASTEXITCODE }
 if (-not $DataRoot) { $DataRoot = Join-Path $PSScriptRoot 'BHData' }
 $srcDir = Join-Path $PSScriptRoot 'src'
 . (Join-Path $srcDir 'BH.LatestReport.ps1')

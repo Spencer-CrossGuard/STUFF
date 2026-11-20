@@ -328,7 +328,7 @@ Read [PATH-PARITY.md](PATH-PARITY.md) for the source comparison, validation, and
 
 ## GenAI.mil assistant (desktop viewer)
 
-The viewer has a **GenAI.mil** tab. On the Paths tab, **Ask GenAI.mil** loads the path or route currently shown into that tab; on Objects & relationships, **Ask GenAI.mil** loads the selected relationship. The assistant explains it in plain language and recommends fixes, using the relationship glossary already built into the viewer. Answers are shown formatted (headings, bold, lists, code and tables) instead of as raw Markdown; Copy answer copies the clean text.
+The viewer has a **GenAI.mil** tab. On the Paths tab, **Ask GenAI.mil** loads the path or route currently shown into that tab; on Objects & relationships, **Ask GenAI.mil** loads the selected relationship. The assistant explains it in plain language and recommends fixes, using the relationship glossary already built into the viewer. Answers are shown formatted (headings, bold, lists, code and tables) instead of as raw Markdown; Copy answer copies the clean text. Answers are shown formatted (headings, bold, lists, code and tables) instead of as raw Markdown; Copy answer copies the clean text.
 
 * Nothing is sent until you press **Send**. Tick **Show what will be sent** to see the exact text first.
 * You enter your API key once per viewer session. It is kept in memory only, reused for every request until you close the viewer or choose **Forget key**, and is never written to disk. A rejected key (HTTP 401 or 403) is forgotten automatically.
@@ -336,6 +336,8 @@ The viewer has a **GenAI.mil** tab. On the Paths tab, **Ask GenAI.mil** loads th
 * Endpoint: `POST {address}/v1/chat/completions` (default address `https://api.genai.mil`), with `GET /v1/models` behind **Load models**. The answer streams in as it arrives, with a fallback to a single response.
 * Default model is `gemini-3.8-flash` (Assist lane: 0 credits, no tools needed). Standard-lane models are listed with their credit multipliers; the footer shows tokens and the credits spent in this session.
 * Tier 0 limits are respected: requests are at least 1.1 seconds apart (60 per minute), a prompt over about 20,000 tokens is refused, paths are limited to the first 60 relationships, and a 429 reply waits for Retry-After once before reporting.
+* Answers are a one-way report: the assistant is told not to ask questions or offer more help, and any closing question that slips through is removed. Emoji and symbols the viewer font cannot draw are removed, and tables are shown as bulleted lists.
+* The **Follow-up** box under the answer continues the conversation. Names you type are hidden the same way as in the first question (when Hide object names is on), and loading another path starts a fresh conversation.
 * The answer is machine generated. Treat it as a starting point and verify any change with the steps in the viewer's own guidance.
 
 The viewer otherwise stays read-only with no listening ports. This feature is the only part that makes an outbound connection, and only when you press Send or Load models.

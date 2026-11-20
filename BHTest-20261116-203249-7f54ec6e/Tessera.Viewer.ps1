@@ -4414,8 +4414,22 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         public GenAiResult Chat(string model, string system, string user, int maxTokens, Action<string> onText)
         {
+            var turns = new List<string[]>();
+            turns.Add(new string[] { "system", system }); turns.Add(new string[] { "user", user });
+            return ChatMessages(model, turns, maxTokens, onText);
+        }
+
+        /// <summary>One request carrying the whole conversation so far. Each turn is { role, content }.</summary>
+        public GenAiResult ChatMessages(string model, List<string[]> turns, int maxTokens, Action<string> onText)
+        {
             var result = new GenAiResult();
-            string messages = ",\"messages\":[{\"role\":\"system\",\"content\":" + GenAiJson.Quote(system) + "},{\"role\":\"user\",\"content\":" + GenAiJson.Quote(user) + "}]}";
+            var built = new StringBuilder(",\"messages\":[");
+            for (int t = 0; t < turns.Count; t++)
+            {
+                if (t > 0) built.Append(',');
+                built.Append("{\"role\":").Append(GenAiJson.Quote(turns[t][0])).Append(",\"content\":").Append(GenAiJson.Quote(turns[t][1])).Append('}');
+            }
+            string messages = built.Append("]}").ToString();
             string streamBody = "{\"model\":" + GenAiJson.Quote(model) + ",\"stream\":true,\"stream_options\":{\"include_usage\":true},\"max_tokens\":" + maxTokens + messages;
             string plainBody = "{\"model\":" + GenAiJson.Quote(model) + ",\"max_tokens\":" + maxTokens + messages;
             string body = streamBody;
@@ -4606,17 +4620,39 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             p.User = user.ToString();
             p.System = "You are a defensive Active Directory and Entra ID security analyst helping an administrator who owns the environment. " +
                 "Use only the relationships supplied. Do not invent objects, permissions or facts, and say plainly when something cannot be known from this data. " +
-                "Format with simple Markdown that is easy to read: a short heading per section (## SUMMARY), numbered or bulleted lists, **bold** for object names and relationship names, and no tables. Sections, in order, only for what was asked: " +
+                "Format with simple Markdown that is easy to read: a short heading per section (## SUMMARY), numbered or bulleted lists, **bold** for object names and relationship names. Never use tables; use bulleted lists instead. Never use emojis, icons or special symbols; use plain punctuation only. Sections, in order, only for what was asked: " +
                 "SUMMARY (two sentences); WHY IT MATTERS (what an attacker who controls the first object could reach); STEP BY STEP (one short line per relationship); " +
                 "RECOMMENDED FIXES (numbered, safest and highest impact first, each naming the exact relationship to change and the least disruptive change); " +
                 "HOW TO VERIFY AND ROLL BACK; CONFIDENCE AND LIMITS. " +
-                "Give defensive remediation only. Do not provide exploitation commands or attack tooling.";
+                "Give defensive remediation only. Do not provide exploitation commands or attack tooling. " +
+                "This is a one-way report: do not ask the user any question, do not offer further help or next steps beyond the fixes themselves, and stop when the content is complete. When the user later asks a follow-up question, answer it directly and briefly in the same style.";
             return p;
         }
 
         private static string Get(Dictionary<string, object> row, string key)
         {
             object v; return row.TryGetValue(key, out v) && v != null ? Convert.ToString(v, CultureInfo.InvariantCulture) : "";
+        }
+
+        /// <summary>Swaps real names the user typed for their tokens, so a follow-up question does not leak names.</summary>
+        public string Hide(string text)
+        {
+            if (tokenToName.Count == 0 || string.IsNullOrEmpty(text)) return text;
+            var pairs = new List<KeyValuePair<string, string>>(tokenToName);
+            pairs.Sort(delegate(KeyValuePair<string, string> a, KeyValuePair<string, string> b) { return b.Value.Length.CompareTo(a.Value.Length); });
+            foreach (var pair in pairs)
+            {
+                if (pair.Value.Length < 2) continue;
+                var sb = new StringBuilder(); int i = 0;
+                while (i < text.Length)
+                {
+                    int at = text.IndexOf(pair.Value, i, StringComparison.OrdinalIgnoreCase);
+                    if (at < 0) { sb.Append(text, i, text.Length - i); break; }
+                    sb.Append(text, i, at - i).Append(pair.Key); i = at + pair.Value.Length;
+                }
+                text = sb.ToString();
+            }
+            return text;
         }
 
         /// <summary>Puts the real names back into text that came back with tokens.</summary>
@@ -4655,7 +4691,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public static string ToRtf(string markdown)
         {
             var o = new StringBuilder(Header);
-            string[] lines = (markdown ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            string[] lines = Clean(markdown ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             bool code = false, blankPending = false;
             for (int i = 0; i < lines.Length; i++)
             {
@@ -4672,7 +4708,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                     o.Append("\\pard\\sb140\\sa60{\\b\\fs").Append(size).Append("\\cf2 "); Inline(trimmed.Substring(hashes + 1).Trim(), o); o.Append("}\\par\n");
                     continue;
                 }
-                if (IsRule(trimmed)) { o.Append("\\pard\\sb60\\sa60{\\cf3 ").Append("\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?}\\par\n"); continue; }
+                if (IsRule(trimmed)) { o.Append("\\pard\\sb60\\sa60{\\f1\\fs14\\cf3 ").Append(new string('-', 70)).Append("}\\par\n"); continue; }
                 if (trimmed.StartsWith("|", StringComparison.Ordinal) && trimmed.EndsWith("|", StringComparison.Ordinal))
                 {
                     var rows = new List<string[]>();
@@ -4687,14 +4723,25 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                         if (!separator) rows.Add(cells);
                     }
                     i = j - 1;
-                    var widths = new List<int>();
-                    foreach (string[] r in rows) for (int c = 0; c < r.Length; c++) { if (widths.Count <= c) widths.Add(0); widths[c] = Math.Max(widths[c], r[c].Length); }
-                    for (int r = 0; r < rows.Count; r++)
+                    // Tables are hard to read in a text box, so each row becomes a bullet with its columns as sub-bullets.
+                    string[] header = rows.Count > 0 ? rows[0] : new string[0];
+                    for (int r = 1; r < rows.Count; r++)
                     {
-                        var rowText = new StringBuilder();
-                        for (int c = 0; c < rows[r].Length; c++) { if (c > 0) rowText.Append("  |  "); rowText.Append(rows[r][c].PadRight(widths[c])); }
-                        o.Append("\\pard\\li120\\sa0{\\f1\\fs19").Append(r == 0 ? "\\b" : "").Append(" ").Append(Esc(rowText.ToString())).Append("}\\par\n");
-                        if (r == 0 && rows.Count > 1) o.Append("\\pard\\li120\\sa0{\\f1\\fs12\\cf3 ").Append(Esc(new string('-', Math.Min(110, rowText.Length)))).Append("}\\par\n");
+                        string first = rows[r].Length > 0 ? rows[r][0] : "";
+                        o.Append("\\pard\\tx380\\li380\\fi-260\\sa30\\u8226?\\tab {\\b ").Append(Esc(first.Length == 0 ? "(item)" : first)).Append("}\\par\n");
+                        for (int c = 1; c < rows[r].Length; c++)
+                        {
+                            if (rows[r][c].Length == 0) continue;
+                            string label = c < header.Length ? header[c] : "";
+                            o.Append("\\pard\\tx740\\li740\\fi-260\\sa20\\u8226?\\tab ");
+                            if (label.Length > 0) o.Append("{\\i ").Append(Esc(label)).Append(":} ");
+                            o.Append(Esc(rows[r][c])).Append("\\par\n");
+                        }
+                    }
+                    if (rows.Count == 1)
+                    {
+                        string joined = string.Join("; ", rows[0]);
+                        o.Append("\\pard\\tx380\\li380\\fi-260\\sa30\\u8226?\\tab ").Append(Esc(joined)).Append("\\par\n");
                     }
                     o.Append("\\pard\\sa60\\par\n");
                     continue;
@@ -4722,6 +4769,64 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 o.Append("\\pard\\sa60 "); Inline(trimmed, o); o.Append("\\par\n");
             }
             return o.Append("}").ToString();
+        }
+
+        /// <summary>Replaces or removes characters the viewer font cannot draw (emoji, icons, arrows, box drawing).</summary>
+        public static string Clean(string s)
+        {
+            var sb = new StringBuilder(s.Length);
+            bool dropped = false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                // A space left behind by a removed symbol is not doubled.
+                if (c == ' ' && dropped && sb.Length > 0 && sb[sb.Length - 1] == ' ') { dropped = false; continue; }
+                dropped = false;
+                if (char.IsHighSurrogate(c)) { i++; dropped = true; continue; }          // emoji and other supplementary-plane symbols
+                if (char.IsLowSurrogate(c)) { dropped = true; continue; }
+                switch (c)
+                {
+                    case '\u2705': case '\u2714': case '\u2713': sb.Append("[ok]"); continue;
+                    case '\u274C': case '\u2716': case '\u2717': sb.Append("[x]"); continue;
+                    case '\u26A0': sb.Append("Warning:"); continue;
+                    case '\u2757': case '\u2755': case '\u2753': dropped = true; continue;
+                    case '\u2192': case '\u27A1': sb.Append("->"); continue;
+                    case '\u2190': sb.Append("<-"); continue;
+                    case '\u2018': case '\u2019': sb.Append('\''); continue;
+                    case '\u201C': case '\u201D': sb.Append('"'); continue;
+                    case '\u2013': sb.Append('-'); continue;
+                    case '\u2014': sb.Append('-'); continue;
+                    case '\u2026': sb.Append("..."); continue;
+                    case '\u00A0': case '\u2002': case '\u2003': case '\u2009': case '\u202F': sb.Append(' '); continue;
+                    case '\u200B': case '\u200C': case '\u200D': case '\uFE0E': case '\uFE0F': case '\uFEFF': continue;
+                }
+                if (c >= '\u2190' && c <= '\u2BFF') { dropped = true; continue; }              // arrows, math, box drawing, dingbats, misc symbols
+                if (c >= '\uE000' && c <= '\uF8FF') continue;              // private use
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Removes a closing question or offer of more help ("Would you like me to...?") from the end of an answer.</summary>
+        public static string TrimFollowUp(string markdown)
+        {
+            if (string.IsNullOrEmpty(markdown)) return markdown;
+            string[] lines = markdown.Replace("\r\n", "\n").Split('\n');
+            int end = lines.Length;
+            while (true)
+            {
+                while (end > 0 && lines[end - 1].Trim().Length == 0) end--;
+                if (end == 0) break;
+                string last = lines[end - 1].Trim(), lower = last.TrimStart('*', '_', '>', ' ').ToLowerInvariant();
+                bool listItem = last.Length > 1 && (last[0] == '-' || last[0] == '*' || last[0] == '+' || char.IsDigit(last[0]));
+                bool offer = lower.StartsWith("would you like") || lower.StartsWith("do you want") || lower.StartsWith("let me know") || lower.StartsWith("feel free") ||
+                    lower.StartsWith("if you'd like") || lower.StartsWith("if you would like") || lower.StartsWith("if you want") || lower.StartsWith("i can also") ||
+                    lower.StartsWith("i'm happy to") || lower.StartsWith("i am happy to") || lower.StartsWith("shall i") || lower.StartsWith("want me to") ||
+                    lower.StartsWith("should i") || lower.StartsWith("is there anything") || lower.StartsWith("need help") || lower.StartsWith("how would you like");
+                if (offer || (!listItem && last.EndsWith("?", StringComparison.Ordinal)) || IsRule(last)) { end--; continue; }
+                break;
+            }
+            return string.Join("\n", lines, 0, end);
         }
 
         private static bool IsRule(string t)
@@ -4826,15 +4931,20 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private GenAiClient client;
         private Thread worker;
         private string rawAnswer = "";
+        private readonly TextBox ask;
+        private readonly Button askButton;
+        private readonly List<string[]> history = new List<string[]>();
+        private string transcript = "";
 
         public GenAiPanel()
         {
             Name = "GenAiPanel"; Dock = DockStyle.Fill; BackColor = PanelColor; ForeColor = Ink;
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
             Controls.Add(layout);
 
@@ -4889,6 +4999,17 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             split.Panel2Collapsed = true;
             layout.Controls.Add(split, 0, 3);
 
+            // Row 4: follow-up questions about the answer (the conversation is kept until a new path is loaded)
+            var askBar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
+            askBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92)); askBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); askBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+            askBar.Controls.Add(new Label { Text = "Follow-up", Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(4, 0, 0, 0) }, 0, 0);
+            ask = new TextBox { Name = "GenAiAsk", Dock = DockStyle.Fill, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(4, 8, 4, 4) };
+            ask.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { Ask(); e.SuppressKeyPress = true; } };
+            askBar.Controls.Add(ask, 1, 0);
+            askButton = Flat("Ask", "GenAiAskButton"); askButton.Dock = DockStyle.Fill; askButton.Click += delegate { Ask(); };
+            askBar.Controls.Add(askButton, 2, 0);
+            layout.Controls.Add(askBar, 0, 4);
+
             // Row 4: status, lane and the preview switch
             var foot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
             foot.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); foot.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 215));
@@ -4897,7 +5018,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             showSent = new CheckBox { Name = "GenAiShowSent", Text = "Show what will be sent", AutoSize = true, ForeColor = Ink, Anchor = AnchorStyles.Right, Margin = new Padding(0, 6, 4, 0) };
             showSent.CheckedChanged += delegate { split.Panel2Collapsed = !showSent.Checked; if (showSent.Checked) split.SplitterDistance = Math.Max(120, split.Height * 55 / 100); };
             foot.Controls.Add(showSent, 1, 0);
-            layout.Controls.Add(foot, 0, 4);
+            layout.Controls.Add(foot, 0, 5);
 
             Disposed += delegate { if (client != null) client.Cancel(); };
             RefreshKeyState(); ShowLane(); Rebuild();
@@ -4933,7 +5054,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public void LoadEdges(List<Dictionary<string, object>> items, string what)
         {
             edges = items ?? new List<Dictionary<string, object>>(); source = what ?? "";
-            rawAnswer = ""; answer.Clear();
+            rawAnswer = ""; answer.Clear(); history.Clear(); transcript = "";
             Rebuild();
             SetStatus(prompt.Steps + " relationships ready. " + (GenAiSession.Key.Length > 0 ? "Press Send." : "Enter your API key, then press Send."), false);
         }
@@ -4976,17 +5097,39 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private void Send()
         {
             if (worker != null && worker.IsAlive) return;
-            string secret = UsableKey(), chosen = model.Text.Trim();
-            if (secret.Length == 0) { SetStatus("Enter your API key.", true); return; }
-            if (chosen.Length == 0) { SetStatus("Choose a model.", true); return; }
             if (prompt.Steps == 0) { SetStatus("Nothing to explain yet. Open a path or select a relationship, then choose Ask GenAI.mil.", true); return; }
             if ((prompt.System.Length + prompt.User.Length) / 4 > 20000) { SetStatus("The question is too large for one request. Choose a shorter path.", true); return; }
-            rawAnswer = ""; answer.Clear(); send.Enabled = false; cancel.Enabled = true; SetStatus("Sending to " + address.Text.Trim() + " ...", false);
+            history.Clear(); history.Add(new string[] { "system", prompt.System }); history.Add(new string[] { "user", prompt.User });
+            transcript = "";
+            Run(false, "");
+        }
+
+        private void Ask()
+        {
+            if (worker != null && worker.IsAlive) return;
+            string typed = ask.Text.Trim();
+            if (typed.Length == 0) return;
+            if (history.Count < 3) { SetStatus("Press Send for the path first, then ask follow-up questions about the answer.", true); return; }
+            int size = 0; foreach (string[] turn in history) size += turn[1].Length;
+            if ((size + typed.Length) / 4 > 20000) { SetStatus("This conversation is too long for one request. Press Send to start again.", true); return; }
+            string before = transcript;
+            history.Add(new string[] { "user", hide.Checked ? prompt.Hide(typed) : typed });
+            transcript += (transcript.Length > 0 ? "\n\n---\n\n" : "") + "**You asked:** " + typed + "\n\n";
+            ask.Text = "";
+            Run(true, before);
+        }
+
+        private void Run(bool followUp, string transcriptBefore)
+        {
+            string secret = UsableKey(), chosen = model.Text.Trim();
+            if (secret.Length == 0) { SetStatus("Enter your API key.", true); if (followUp) Undo(transcriptBefore); return; }
+            if (chosen.Length == 0) { SetStatus("Choose a model.", true); if (followUp) Undo(transcriptBefore); return; }
+            rawAnswer = ""; send.Enabled = false; askButton.Enabled = false; cancel.Enabled = true; ShowAnswer(""); SetStatus("Sending to " + address.Text.Trim() + " ...", false);
             client = new GenAiClient(address.Text, secret);
-            var current = client; var currentPrompt = prompt; string system = prompt.System, user = prompt.User;
+            var current = client; var currentPrompt = prompt; var turns = new List<string[]>(history);
             worker = new Thread(delegate()
             {
-                GenAiResult result = current.Chat(chosen, system, user, 2500, delegate(string piece)
+                GenAiResult result = current.ChatMessages(chosen, turns, 2500, delegate(string piece)
                 {
                     Post(delegate
                     {
@@ -4996,25 +5139,34 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 });
                 Post(delegate
                 {
-                    send.Enabled = true; cancel.Enabled = false; GenAiSession.Requests++;
+                    send.Enabled = true; askButton.Enabled = true; cancel.Enabled = false; GenAiSession.Requests++;
                     if (result.Error != null)
                     {
+                        if (followUp) Undo(transcriptBefore); else { history.Clear(); transcript = ""; ShowAnswer(""); }
                         SetStatus(result.Error, true);
                         if (result.Status == 401 || result.Status == 403) { GenAiSession.Forget(); RefreshKeyState(); }
                         return;
                     }
                     GenAiSession.Credits += GenAiModels.Credits(chosen, result.PromptTokens, result.CompletionTokens);
-                    ShowAnswer(currentPrompt.Restore(result.Text));
+                    history.Add(new string[] { "assistant", result.Text });
+                    transcript += GenAiMarkdown.TrimFollowUp(currentPrompt.Restore(result.Text));
+                    ShowAnswer("");
                     SetStatus("Done. Tokens in " + result.PromptTokens + ", out " + result.CompletionTokens + ". Credits used in this session: " + GenAiSession.Credits + " of 2,000,000 per day (" + GenAiSession.Requests + " requests). Review before acting.", false);
                 });
             });
             worker.IsBackground = true; worker.Start();
         }
 
+        private void Undo(string transcriptBefore)
+        {
+            if (history.Count > 0 && history[history.Count - 1][0] == "user") history.RemoveAt(history.Count - 1);
+            transcript = transcriptBefore; ShowAnswer("");
+        }
+
         private void ShowAnswer(string markdown)
         {
-            try { answer.Rtf = GenAiMarkdown.ToRtf(markdown); }
-            catch (Exception) { answer.Text = (markdown ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"); }
+            try { answer.Rtf = GenAiMarkdown.ToRtf(transcript + (markdown ?? "")); }
+            catch (Exception) { answer.Text = (transcript + (markdown ?? "")).Replace("\r\n", "\n").Replace("\n", "\r\n"); }
             answer.SelectionStart = answer.TextLength; answer.ScrollToCaret();
         }
     }

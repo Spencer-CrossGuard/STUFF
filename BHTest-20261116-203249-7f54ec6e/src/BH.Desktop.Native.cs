@@ -860,6 +860,108 @@ namespace BH.Native
         }
     }
 
+    /// <summary>One naming rule: objects whose name matches the pattern have this role (for example *-DC-* is a Domain Controller).</summary>
+    internal sealed class GenAiRole
+    {
+        public string Pattern = "", Role = "", Scope = "Computers", Note = "";
+        private System.Text.RegularExpressions.Regex regex;
+        private string compiledFor;
+
+        /// <summary>* is any number of characters (or none), ? is exactly one character, and a run of two or more capital X letters (XX, XXX) is a placeholder for one or more characters.</summary>
+        public static System.Text.RegularExpressions.Regex Compile(string pattern)
+        {
+            var sb = new StringBuilder("^");
+            for (int i = 0; i < pattern.Length; i++)
+            {
+                char c = pattern[i];
+                if (c == '*') sb.Append(".*");
+                else if (c == '?') sb.Append('.');
+                else if (c == 'X')
+                {
+                    int run = 0; while (i + run < pattern.Length && pattern[i + run] == 'X') run++;
+                    if (run >= 2) { sb.Append(".+"); i += run - 1; }
+                    else sb.Append('X');
+                }
+                else sb.Append(System.Text.RegularExpressions.Regex.Escape(c.ToString()));
+            }
+            return new System.Text.RegularExpressions.Regex(sb.Append('$').ToString(), System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        }
+
+        private static bool ScopeAllows(string scope, string kind)
+        {
+            switch ((scope ?? "Any").ToLowerInvariant())
+            {
+                case "computers": return string.Equals(kind, "computers", StringComparison.OrdinalIgnoreCase);
+                case "users": return string.Equals(kind, "users", StringComparison.OrdinalIgnoreCase);
+                case "groups": return string.Equals(kind, "groups", StringComparison.OrdinalIgnoreCase);
+                default: return true;
+            }
+        }
+
+        /// <summary>The full name and the short name (before the first dot, without a trailing $) are both tried.</summary>
+        public bool Matches(string name, string kind)
+        {
+            if (Pattern.Length == 0 || string.IsNullOrEmpty(name) || !ScopeAllows(Scope, kind)) return false;
+            try
+            {
+                if (regex == null || compiledFor != Pattern) { regex = Compile(Pattern.Trim()); compiledFor = Pattern; }
+                string full = name.Trim(), shortName = full.TrimEnd('$');
+                int dot = shortName.IndexOf('.'); if (dot > 0) shortName = shortName.Substring(0, dot);
+                return regex.IsMatch(full) || regex.IsMatch(full.TrimEnd('$')) || regex.IsMatch(shortName);
+            }
+            catch (ArgumentException) { return false; }
+        }
+    }
+
+    /// <summary>The administrator's naming rules. Saved on this computer only (not in the scan data) and sent with each question.</summary>
+    internal static class GenAiRoles
+    {
+        public static readonly string[] Scopes = new string[] { "Computers", "Users", "Groups", "Any" };
+        public static readonly string[] Presets = new string[] { "Domain Controller", "Member server", "File server", "SQL or database server", "Web or IIS server", "Exchange server", "Certificate authority", "Backup server", "Hypervisor host", "Jump host or admin workstation", "Workstation", "Service account", "Privileged admin account" };
+        public static List<GenAiRole> Items = new List<GenAiRole>();
+        private static bool loaded;
+
+        public static string FilePath()
+        {
+            return Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tessera"), "device-roles.tsv");
+        }
+
+        public static void EnsureLoaded()
+        {
+            if (loaded) return;
+            loaded = true;
+            try
+            {
+                string path = FilePath();
+                if (!File.Exists(path)) return;
+                var list = new List<GenAiRole>();
+                foreach (string line in File.ReadAllLines(path, Encoding.UTF8))
+                {
+                    string[] f = line.Split('\t');
+                    if (f.Length < 2 || f[0].Trim().Length == 0 || f[1].Trim().Length == 0) continue;
+                    list.Add(new GenAiRole { Pattern = f[0].Trim(), Role = f[1].Trim(), Scope = f.Length > 2 && f[2].Trim().Length > 0 ? f[2].Trim() : "Computers", Note = f.Length > 3 ? f[3].Trim() : "" });
+                }
+                Items = list;
+            }
+            catch (Exception) { }
+        }
+
+        public static string Save()
+        {
+            try
+            {
+                string path = FilePath(); Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var sb = new StringBuilder();
+                foreach (GenAiRole r in Items) sb.Append(One(r.Pattern)).Append('\t').Append(One(r.Role)).Append('\t').Append(One(r.Scope)).Append('\t').Append(One(r.Note)).Append("\r\n");
+                File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
+                return null;
+            }
+            catch (Exception ex) { return "The roles could not be saved: " + ex.Message; }
+        }
+
+        private static string One(string s) { return (s ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim(); }
+    }
+
     /// <summary>Builds the question from the relationships on screen. Names can be replaced by neutral tokens.</summary>
     internal sealed class GenAiPrompt
     {
@@ -890,13 +992,28 @@ namespace BH.Native
 
         public static GenAiPrompt Build(List<Dictionary<string, object>> edges, bool hideNames, int task, Func<string, string[]> glossary)
         {
+            return Build(edges, hideNames, task, glossary, null);
+        }
+
+        public static GenAiPrompt Build(List<Dictionary<string, object>> edges, bool hideNames, int task, Func<string, string[]> glossary, List<GenAiRole> roles)
+        {
             var p = new GenAiPrompt();
+            var roleOf = new Dictionary<string, GenAiRole>(StringComparer.OrdinalIgnoreCase);
+            var roleOrder = new List<string>();
+            var tokenByIdForRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var tokenOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var counters = new Dictionary<string, int>();
             Func<Dictionary<string, object>, string, string> label = delegate(Dictionary<string, object> edge, string side)
             {
                 string id = Get(edge, side), name = Get(edge, side + "n"), kind = Get(edge, side + "k");
                 string display = name.Length > 0 ? name : id;
+                if (roles != null && !roleOf.ContainsKey(id) && !tokenByIdForRoles.ContainsKey(id))
+                {
+                    GenAiRole hit = null;
+                    foreach (GenAiRole r in roles) if (r.Matches(name, kind)) { hit = r; break; }
+                    tokenByIdForRoles[id] = display;
+                    if (hit != null) { roleOf[id] = hit; roleOrder.Add(id); }
+                }
                 if (!hideNames) return display;
                 string token;
                 if (!tokenOf.TryGetValue(id, out token))
@@ -917,8 +1034,10 @@ namespace BH.Native
                 string type = Get(edge, "ty");
                 if (!types.Contains(type)) types.Add(type);
                 string sk = Get(edge, "sk"), tk = Get(edge, "tk");
-                lines.Append(count).Append(". ").Append(label(edge, "s")).Append(sk.Length > 0 ? " (" + KindWord(sk).ToLowerInvariant() + ")" : "")
-                    .Append("  --[").Append(type).Append("]-->  ").Append(label(edge, "t")).Append(tk.Length > 0 ? " (" + KindWord(tk).ToLowerInvariant() + ")" : "").Append('\n');
+                string sLabel = label(edge, "s"), tLabel = label(edge, "t");
+                GenAiRole sRole, tRole; roleOf.TryGetValue(Get(edge, "s"), out sRole); roleOf.TryGetValue(Get(edge, "t"), out tRole);
+                lines.Append(count).Append(". ").Append(sLabel).Append(sk.Length > 0 || sRole != null ? " (" + KindWord(sk).ToLowerInvariant() + (sRole != null ? ", role: " + sRole.Role : "") + ")" : "")
+                    .Append("  --[").Append(type).Append("]-->  ").Append(tLabel).Append(tk.Length > 0 || tRole != null ? " (" + KindWord(tk).ToLowerInvariant() + (tRole != null ? ", role: " + tRole.Role : "") + ")" : "").Append('\n');
             }
             p.Steps = count;
             var glossaryText = new StringBuilder();
@@ -929,16 +1048,25 @@ namespace BH.Native
                 glossaryText.Append("- ").Append(type).Append(": ").Append(Clip(h[1], 260)).Append(" Impact: ").Append(Clip(h[3], 260)).Append(" Usual fix: ").Append(Clip(h[6], 260)).Append('\n');
             }
             // task: 0 = both, 1 = explain only, 2 = recommend only
+            // Roles come from the administrator's naming rules. With names hidden only the token and the role are sent.
+            var roleText = new StringBuilder();
+            foreach (string id in roleOrder)
+            {
+                GenAiRole r = roleOf[id];
+                string who; if (!tokenOf.TryGetValue(id, out who)) who = tokenByIdForRoles[id];
+                roleText.Append("- ").Append(who).Append(": ").Append(r.Role).Append(r.Note.Length > 0 ? ". " + Clip(r.Note, 200) : "").Append('\n');
+            }
             string want = task == 1 ? "Explain this path." : task == 2 ? "Recommend how to fix it." : "Explain this path, then recommend how to fix it.";
             var user = new StringBuilder();
             user.Append("Directory attack path from an authorized internal security review, source first, target last. ")
                 .Append(hideNames ? "Object names are replaced by tokens such as USER-1; treat each token as an opaque name and use the same token in your answer.\n\n" : "\n\n");
             user.Append("Relationships (").Append(count).Append(p.Truncated ? ", list shortened to the first " + MaxSteps : "").Append("):\n").Append(lines).Append('\n');
+            if (roleText.Length > 0) user.Append("Roles of these objects, from the administrator's naming rules (treat as facts):\n").Append(roleText).Append('\n');
             if (glossaryText.Length > 0) user.Append("What each relationship type means in this tool:\n").Append(glossaryText).Append('\n');
             user.Append("Evidence, permissions masks and original object details are not included. ").Append(want);
             p.User = user.ToString();
             p.System = "You are a defensive Active Directory and Entra ID security analyst helping an administrator who owns the environment. " +
-                "Use only the relationships supplied. Do not invent objects, permissions or facts, and say plainly when something cannot be known from this data. " +
+                "Use only the relationships supplied. Do not invent objects, permissions or facts, and say plainly when something cannot be known from this data. When roles are given for objects (for example Domain Controller, File server, Workstation), use them to judge the real-world impact of each relationship and the order of fixes; an object without a role is of unknown type. " +
                 "Format with simple Markdown that is easy to read: a short heading per section (## SUMMARY), numbered or bulleted lists, **bold** for object names and relationship names. Never use tables; use bulleted lists instead. Never use emojis, icons or special symbols; use plain punctuation only. Sections, in order, only for what was asked: " +
                 "SUMMARY (two sentences); WHY IT MATTERS (what an attacker who controls the first object could reach); STEP BY STEP (one short line per relationship); " +
                 "RECOMMENDED FIXES (numbered, safest and highest impact first, each naming the exact relationship to change and the least disruptive change); " +
@@ -1233,6 +1361,89 @@ namespace BH.Native
         public static void Forget() { Key = ""; }
     }
 
+    /// <summary>Editor for the naming rules: a pattern, the role it means, what it applies to, and an optional note.</summary>
+    internal sealed class GenAiRolesDialog : Form
+    {
+        private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81), Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202);
+        private readonly DataGridView grid;
+        private readonly Label message;
+
+        public GenAiRolesDialog()
+        {
+            GenAiRoles.EnsureLoaded();
+            Text = "Device and account roles"; Name = "GenAiRolesDialog"; Size = new Size(940, 560); MinimumSize = new Size(760, 420);
+            StartPosition = FormStartPosition.CenterParent; BackColor = PanelColor; ForeColor = Ink; Font = new Font("Segoe UI", 10);
+            var intro = new Label
+            {
+                Dock = DockStyle.Top, Height = 104, ForeColor = Muted, Padding = new Padding(10, 8, 10, 4),
+                Text = "Tell the assistant what your devices and accounts are, so it can judge impact. Each row is a naming pattern and its role. These rules are sent with the question (role names and notes only; with Hide object names on, the names themselves are not).\r\n" +
+                    "Patterns: * is any characters, ? is exactly one character, and XX (two or more capital X in a row) stands for one or more characters. Example: XX-DC-XX matches NY-DC-01 and NYC-DC-01. Matching ignores upper and lower case and the domain part, and the first matching row wins. Roles: " + string.Join(", ", GenAiRoles.Presets) + ", or your own words."
+            };
+            grid = new DataGridView
+            {
+                Dock = DockStyle.Fill, AllowUserToAddRows = true, AllowUserToDeleteRows = true, RowHeadersVisible = false, MultiSelect = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, BackgroundColor = Bg, BorderStyle = BorderStyle.None,
+                EnableHeadersVisualStyles = false, GridColor = Line
+            };
+            grid.DefaultCellStyle.BackColor = PanelColor; grid.DefaultCellStyle.ForeColor = Ink; grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(38, 65, 102); grid.DefaultCellStyle.SelectionForeColor = Color.White;
+            grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(25, 39, 60); grid.ColumnHeadersDefaultCellStyle.ForeColor = Muted;
+            grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(25, 39, 60); grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Muted;
+            grid.Columns.Add("Pattern", "Name pattern (for example XX-DC-XX)");
+            grid.Columns.Add("Role", "Role or type (for example Domain Controller)");
+            var scope = new DataGridViewComboBoxColumn { Name = "Scope", HeaderText = "Applies to" };
+            foreach (string item in GenAiRoles.Scopes) scope.Items.Add(item);
+            grid.Columns.Add(scope);
+            grid.Columns.Add("Note", "Note for the assistant (optional)");
+            grid.Columns["Pattern"].FillWeight = 26; grid.Columns["Role"].FillWeight = 28; grid.Columns["Scope"].FillWeight = 14; grid.Columns["Note"].FillWeight = 32;
+            grid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
+            foreach (GenAiRole r in GenAiRoles.Items) grid.Rows.Add(r.Pattern, r.Role, r.Scope, r.Note);
+
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 52, BackColor = PanelColor, Padding = new Padding(6, 8, 6, 4), FlowDirection = FlowDirection.LeftToRight };
+            Button save = Flat("Save"), cancel = Flat("Cancel"), examples = Flat("Add examples");
+            save.Click += delegate { Save(); };
+            cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
+            examples.Click += delegate
+            {
+                AddExample("XX-DC-XX", "Domain Controller", "Computers", "Holds the domain database. Compromise means compromise of the whole domain.");
+                AddExample("*-FS-*", "File server", "Computers", "");
+                AddExample("*-SQL-*", "SQL or database server", "Computers", "");
+                AddExample("WS-*", "Workstation", "Computers", "Standard user workstation.");
+                AddExample("svc-*", "Service account", "Users", "Non-interactive service account.");
+                AddExample("adm-*", "Privileged admin account", "Users", "");
+            };
+            message = new Label { AutoSize = true, ForeColor = Muted, Margin = new Padding(12, 9, 0, 0) };
+            bottom.Controls.Add(save); bottom.Controls.Add(cancel); bottom.Controls.Add(examples); bottom.Controls.Add(message);
+            Controls.Add(grid); Controls.Add(bottom); Controls.Add(intro);
+            AcceptButton = null;
+        }
+
+        private static Button Flat(string text)
+        {
+            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Height = 32, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 39, 60), ForeColor = Ink, Margin = new Padding(4, 2, 4, 2), Padding = new Padding(8, 0, 8, 0) };
+            b.FlatAppearance.BorderColor = Line; return b;
+        }
+
+        private void AddExample(string pattern, string role, string scope, string note) { grid.Rows.Add(pattern, role, scope, note); }
+
+        private void Save()
+        {
+            var list = new List<GenAiRole>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                string pattern = Convert.ToString(row.Cells["Pattern"].Value) ?? "", role = Convert.ToString(row.Cells["Role"].Value) ?? "";
+                if (pattern.Trim().Length == 0 && role.Trim().Length == 0) continue;
+                if (pattern.Trim().Length == 0 || role.Trim().Length == 0) { message.Text = "Every row needs both a pattern and a role."; return; }
+                string scope = Convert.ToString(row.Cells["Scope"].Value);
+                list.Add(new GenAiRole { Pattern = pattern.Trim(), Role = role.Trim(), Scope = string.IsNullOrEmpty(scope) ? "Computers" : scope, Note = (Convert.ToString(row.Cells["Note"].Value) ?? "").Trim() });
+            }
+            GenAiRoles.Items = list;
+            string error = GenAiRoles.Save();
+            if (error != null) { message.Text = error; }
+            DialogResult = DialogResult.OK; Close();
+        }
+    }
+
     internal sealed class GenAiPanel : UserControl
     {
         private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81),
@@ -1244,7 +1455,7 @@ namespace BH.Native
         private readonly ComboBox model, task;
         private readonly CheckBox hide, showSent;
         private readonly Label context, status, keyState;
-        private readonly Button useKey, forgetKey, send, cancel, copy, load;
+        private readonly Button useKey, forgetKey, send, cancel, copy, load, roles;
         private readonly SplitContainer split;
         private GenAiPrompt prompt;
         private GenAiClient client;
@@ -1303,10 +1514,11 @@ namespace BH.Native
             load = Flat("Load models", "GenAiLoadModels"); load.Click += delegate { LoadModels(); };
             hide = new CheckBox { Name = "GenAiHide", Text = "Hide object names", Checked = GenAiSession.HideNames, AutoSize = true, ForeColor = Ink, Margin = new Padding(10, 8, 6, 0) };
             hide.CheckedChanged += delegate { GenAiSession.HideNames = hide.Checked; Rebuild(); };
+            roles = Flat("Device roles", "GenAiRoles"); roles.Click += delegate { EditRoles(); };
             send = Flat("Send", "GenAiSend"); send.Click += delegate { Send(); };
             cancel = Flat("Cancel", "GenAiCancel"); cancel.Enabled = false; cancel.Click += delegate { if (client != null) client.Cancel(); };
             copy = Flat("Copy answer", "GenAiCopy"); copy.Click += delegate { if (answer.Text.Length > 0) Clipboard.SetText(answer.Text); };
-            req.Controls.AddRange(new Control[] { task, model, load, hide, send, cancel, copy });
+            req.Controls.AddRange(new Control[] { task, model, load, hide, roles, send, cancel, copy });
             layout.Controls.Add(req, 0, 2);
 
             // Row 3: answer on top, optional preview of exactly what is sent below
@@ -1380,10 +1592,19 @@ namespace BH.Native
 
         private void Rebuild()
         {
-            prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; });
+            GenAiRoles.EnsureLoaded();
+            prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; }, GenAiRoles.Items);
             preview.Text = "SYSTEM INSTRUCTIONS\r\n" + prompt.System.Replace("\n", "\r\n") + "\r\n\r\nQUESTION\r\n" + prompt.User.Replace("\n", "\r\n");
             int approx = (prompt.System.Length + prompt.User.Length) / 4;
-            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included");
+            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + GenAiRoles.Items.Count + " role rules" : "");
+        }
+
+        private void EditRoles()
+        {
+            using (var dialog = new GenAiRolesDialog())
+            {
+                if (dialog.ShowDialog(FindForm()) == DialogResult.OK) { Rebuild(); SetStatus(GenAiRoles.Items.Count + " role rules saved. They are sent with the next question; tick Show what will be sent to check.", false); }
+            }
         }
 
         private string UsableKey() { SaveKey(); return GenAiSession.Key; }

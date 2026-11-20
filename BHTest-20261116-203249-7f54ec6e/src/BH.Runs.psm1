@@ -28,15 +28,15 @@ function Update-BHRun {
         $relative=$base.MakeRelativeUri([Uri]::new($record.ReportPath)).ToString()
         $reportLink='<p><a href="'+[Net.WebUtility]::HtmlEncode($relative)+'">Open report</a></p>'
     }
-    $html='<!doctype html><html><head><meta charset="utf-8"><title>BHTest run</title><style>body{font:17px system-ui;max-width:760px;margin:60px auto;padding:20px;background:#f5f7fa;color:#182336}a{color:#1655b0}li{margin:14px 0}</style></head><body><h1>'+ $label+'</h1><p>Status: <strong>'+$Status+'</strong></p><p>Run: '+$record.RunId+'</p>'+$reportLink+'<ul><li><a href="data/">Collected data</a></li><li><a href="logs/">Diagnostics and logs</a></li><li><a href="run.json">Run details</a></li></ul><p>'+ $errorText+'</p><p>Keep this whole run folder. The graph.sqlite beside the report opens in BHTest.Viewer.ps1. Running status can also mean an interrupted run; consult the log before using unfinished data.</p></body></html>'
+    $html='<!doctype html><html><head><meta charset="utf-8"><title>Tessera run</title><style>body{font:17px system-ui;max-width:760px;margin:60px auto;padding:20px;background:#f5f7fa;color:#182336}a{color:#1655b0}li{margin:14px 0}</style></head><body><h1>'+ $label+'</h1><p>Status: <strong>'+$Status+'</strong></p><p>Run: '+$record.RunId+'</p>'+$reportLink+'<ul><li><a href="data/">Collected data</a></li><li><a href="logs/">Diagnostics and logs</a></li><li><a href="run.json">Run details</a></li></ul><p>'+ $errorText+'</p><p>Keep this whole run folder. The graph.sqlite beside the report opens in Tessera.Viewer.ps1. Running status can also mean an interrupted run; consult the log before using unfinished data.</p></body></html>'
     [IO.File]::WriteAllText((Join-Path $Directory 'START-HERE.html'),$html,[Text.UTF8Encoding]::new($false))
-    @('BHTest '+$record.RunId,'Status: '+$Status,'Open START-HERE.html to review this run.','Report: '+$record.ReportPath,'Data: data','Log: logs\collection.log')|Set-Content (Join-Path $Directory 'START-HERE.txt') -Encoding UTF8
+    @('Tessera '+$record.RunId,'Status: '+$Status,'Open START-HERE.html to review this run.','Report: '+$record.ReportPath,'Data: data','Log: logs\collection.log')|Set-Content (Join-Path $Directory 'START-HERE.txt') -Encoding UTF8
     $rows=foreach($folder in Get-ChildItem (Split-Path $Directory -Parent) -Directory|Sort-Object Name -Descending){
         $manifest=Join-Path $folder.FullName 'run.json'
         if(-not (Test-Path $manifest)){continue}
         try{$entry=Get-Content $manifest -Raw|ConvertFrom-Json}catch{continue}
         '<li><a href="'+[Uri]::EscapeDataString($folder.Name)+'/START-HERE.html">'+[Net.WebUtility]::HtmlEncode($entry.Label)+'</a> — '+[Net.WebUtility]::HtmlEncode($entry.Status)+' — '+[Net.WebUtility]::HtmlEncode($entry.StartedUtc)+'</li>'
     }
-    [IO.File]::WriteAllText((Join-Path (Split-Path $Directory -Parent) 'INDEX.html'),('<!doctype html><meta charset="utf-8"><title>BHTest runs</title><h1>BHTest runs</h1><ul>'+($rows -join "`n")+'</ul>'),[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path (Split-Path $Directory -Parent) 'INDEX.html'),('<!doctype html><meta charset="utf-8"><title>Tessera runs</title><h1>Tessera runs</h1><ul>'+($rows -join "`n")+'</ul>'),[Text.UTF8Encoding]::new($false))
 }
 Export-ModuleMember -Function New-BHRun,Update-BHRun

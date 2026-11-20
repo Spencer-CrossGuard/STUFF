@@ -8,7 +8,7 @@ Recorded prerequisite gaps now identify unestablished CA/template combinations a
 
 # AD CS / ESC1 scope — path rules 6
 
-BHTest now derives `ADCSESC1` candidates from complete **imported SharpHound direct-root CA evidence**. Native LDAP-only template/CA inventory cannot supply these prerequisites and does not produce ESC1 edges. Full BloodHound parity is not claimed.
+Tessera now derives `ADCSESC1` candidates from complete **imported SharpHound direct-root CA evidence**. Native LDAP-only template/CA inventory cannot supply these prerequisites and does not produce ESC1 edges. Full BloodHound parity is not claimed.
 
 ## Required evidence
 
@@ -19,7 +19,7 @@ BHTest now derives `ADCSESC1` candidates from complete **imported SharpHound dir
 - The CA's single-entry chain and fingerprint match a collected RootCA single-entry chain/fingerprint. An NTAuthStore contains that same fingerprint, and root and NTAuth records identify the same collected target domain. Fingerprints must be well-formed SHA-1 identifiers. This models collected directory trust, not cryptographic signature, expiration or revocation validation.
 - The exact CA's HostingComputer resolves to a collected computer with an explicitly enabled state and a domain matching the CA's captured domain.
 
-Imported CA service ACE summaries, collection status/failure, publication, host, certificate chains, thumbprints and domain associations are retained in node records and survive compressed merges. Full registry blobs and certificates are not retrieved by BHTest. Relevant reported deny counts or non-allow ACE context suppress inference; summaries still do not establish full-token effective access.
+Imported CA service ACE summaries, collection status/failure, publication, host, certificate chains, thumbprints and domain associations are retained in node records and survive compressed merges. Full registry blobs and certificates are not retrieved by Tessera. Relevant reported deny counts or non-allow ACE context suppress inference; summaries still do not establish full-token effective access.
 
 ## Path and viewer behavior
 
@@ -39,11 +39,11 @@ Duplicate original report inputs with different template prerequisites are marke
 
 ## Comparison and validation
 
-Reference source: local `BloodHound-main/packages/go/analysis/ad/esc1.go`, `esc_shared.go`, `adcscache.go`, plus `packages/go/ein/ad.go` and the SharpHound EnterpriseCA processor. The reference intersects template and CA enrollment on the same CA and combines root and NTAuth trust with exact-host qualification. BHTest intentionally supports a narrower scope.
+Reference source: local `BloodHound-main/packages/go/analysis/ad/esc1.go`, `esc_shared.go`, `adcscache.go`, plus `packages/go/ein/ad.go` and the SharpHound EnterpriseCA processor. The reference intersects template and CA enrollment on the same CA and combines root and NTAuth trust with exact-host qualification. Tessera intentionally supports a narrower scope.
 
 `tests/AdcsPaths.ps1` validates positive, nested/cyclic and split-membership paths; missing/malformed service data; directory/service separation; different CAs; host and trust mismatches; unsupported intermediate chains; template conditions; deny context; forged projections; saved-finding evidence; and compressed/conflicting merge round trips. `AdcsViewer.ps1` checks native path display, evidence and snapshot immutability; `Adcs.ps1` covers template review; report helper tests cover explanations and safe text.
 
-The unchanged local BloodHound Version6ADCSJSON fixture imports successfully and reproduces **1 of its 3 stored ESC1 endpoint pairs**. The other two rely on group membership branches whose group security-enabled state is absent from that fixture; BHTest deliberately requires that state. This is an import/stored-expectation comparison, not a live execution of BloodHound. Synthetic fixtures separately validate known security-enabled group paths.
+The unchanged local BloodHound Version6ADCSJSON fixture imports successfully and reproduces **1 of its 3 stored ESC1 endpoint pairs**. The other two rely on group membership branches whose group security-enabled state is absent from that fixture; Tessera deliberately requires that state. This is an import/stored-expectation comparison, not a live execution of BloodHound. Synthetic fixtures separately validate known security-enabled group paths.
 
 The retained lab scan has 33 templates (one configuration match, two incomplete), but lacks imported CA-service prerequisites: **zero ESC1 projections**. Its existing DCSync candidate remains separate. No AD changes, CA registry probing, certificate enrollment or exploitation were performed.
 

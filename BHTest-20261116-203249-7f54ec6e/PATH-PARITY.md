@@ -4,7 +4,7 @@ Path rules 6 add ESC1 candidates for complete imported direct-root CA evidence, 
 
 # BloodHound pathing comparison — November 16, 2026
 
-**Full one-for-one BloodHound compatibility is not yet established.** The local BloodHound source defines 64 AD relationship kinds in its frontend pathfinding set. BHTest recognizes 29 of those for traversal. Recognition is not a claim that every kind is collected by ordinary LDAP, derived with all BloodHound prerequisites, or available in this lab. Azure and OpenGraph are outside that count.
+**Full one-for-one BloodHound compatibility is not yet established.** The local BloodHound source defines 64 AD relationship kinds in its frontend pathfinding set. Tessera recognizes 29 of those for traversal. Recognition is not a claim that every kind is collected by ordinary LDAP, derived with all BloodHound prerequisites, or available in this lab. Azure and OpenGraph are outside that count.
 
 Path rules 4 additionally model the backend-declared `GPOAppliesTo` kind under conservative computer-scope prerequisites. It is not in the 64-kind frontend set used for the comparison count. This does not enable raw Contains/GPLink traversal or claim full GPO parity; see GPO-SCOPE.md.
 
@@ -12,7 +12,7 @@ The reference is `C:\Users\Administrator\Desktop\Sharp\Bloodhound Real\BloodHoun
 
 ## Implemented in this update
 
-| Behavior | BloodHound reference | BHTest result |
+| Behavior | BloodHound reference | Tessera result |
 |---|---|---|
 | Two-ended search | `cmd/api/src/api/v2/pathfinding.go`: GetShortestPath returns all shortest paths and unique source/kind/target edges | Native viewer, collector Path Explorer, and CLI PathQuery return the union of every equally short directed route, including parallel permissions |
 | Relationship selection | Inclusive/exclusive kind filters; UI passes selected kinds | Native viewer now offers a checked relationship filter; pair and target searches use it; clear-all remains empty. Collector Path Explorer keeps its existing selection UI |
@@ -34,7 +34,7 @@ For waypoints, visit/search budgets apply separately to each leg, the viewer's t
 
 ## Remaining features, in implementation order
 
-1. **A shared-fixture differential runner.** Load the same normalized graph into a running BloodHound instance and BHTest; compare canonical source/kind/target edge sets for every query and filter. This is needed before calling any supported subset one-for-one. No BloodHound service was configured for this update.
+1. **A shared-fixture differential runner.** Load the same normalized graph into a running BloodHound instance and Tessera; compare canonical source/kind/target edge sets for every query and filter. This is needed before calling any supported subset one-for-one. No BloodHound service was configured for this update.
 2. **Reusable searches.** Ordered waypoints are now implemented in the native viewer and CLI. Saved query/filter presets and waypoint inputs in the collector's optional Path Explorer remain to be added.
 3. **Remaining GPO analysis.** Computer scope candidates now use enforcement, blocked inheritance and supported Read/Apply filtering. User/site/loopback policy, WMI evaluation, full effective-token checks, SYSVOL permissions, actual settings and joint WriteGPLink prerequisites remain. Raw Contains/GPLink edges remain inventory rather than privilege transitions.
 4. **Remaining ownership work.** Rule 5 now preserves raw evidence, OWNER RIGHTS and captured policy, derives supported/conditional ownership candidates, suppresses unsafe projections and preserves merge conflicts. Property-specific limited-owner routes, cross-domain administrator exceptions and full operation-specific server/token checks remain. See OWNERSHIP.md.

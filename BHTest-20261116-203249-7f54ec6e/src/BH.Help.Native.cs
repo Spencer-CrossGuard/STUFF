@@ -58,7 +58,7 @@ namespace BH.Native
         private readonly Label count;
         public HelpLibraryWindow(string initialQuery)
         {
-            Text="BHTest help & glossary — offline";Name="HelpLibraryWindow";Size=new Size(1050,720);MinimumSize=new Size(800,540);StartPosition=FormStartPosition.CenterParent;
+            Text="Tessera help & glossary | offline";Name="HelpLibraryWindow";Size=new Size(1050,720);MinimumSize=new Size(800,540);StartPosition=FormStartPosition.CenterParent;
             Font=new Font("Segoe UI",10);BackColor=Color.FromArgb(12,18,32);ForeColor=Color.FromArgb(237,243,252);
             var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(12)};
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,38));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,30));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));Controls.Add(layout);

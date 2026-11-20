@@ -280,7 +280,7 @@ namespace BH.Native
             fileLock=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
             try
             {
-                var header=new byte[20];if(fileLock.Read(header,0,header.Length)!=20||Encoding.ASCII.GetString(header,0,16)!="SQLite format 3\0")throw new IOException("Select a BHTest SQLite graph index.");
+                var header=new byte[20];if(fileLock.Read(header,0,header.Length)!=20||Encoding.ASCII.GetString(header,0,16)!="SQLite format 3\0")throw new IOException("Select a Tessera SQLite graph index.");
                 if(header[18]!=1||header[19]!=1||File.Exists(path+"-wal")||File.Exists(path+"-journal"))throw new IOException("Select a completed, standalone graph.sqlite snapshot, without a WAL or recovery journal.");
                 using(var db=new GraphIndex(path,false)){db.ViewerBudget();db.Node("__viewer_schema_check__");}
                 var secret=new byte[32];using(var rng=RandomNumberGenerator.Create())rng.GetBytes(secret);token=Convert.ToBase64String(secret);

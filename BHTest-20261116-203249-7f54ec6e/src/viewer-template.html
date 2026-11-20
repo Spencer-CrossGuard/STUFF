@@ -1,7 +1,7 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BHTest · Full index viewer</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tessera · Full index viewer</title>
 /*__STYLES__*/
 <style>.shell{grid-template-columns:145px minmax(0,1fr) 350px}.error{color:var(--danger)}.status{min-height:24px}#findingList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}#findingList article{margin:0}#sessionStatus{overflow-wrap:anywhere}#objectProperties{max-height:350px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.connection{padding:9px;border-bottom:1px solid var(--line)}#sourceId,#targetId{font-family:Consolas,monospace}.helper{word-break:normal}button:disabled{opacity:.45;cursor:default}#restorePreview{display:none}@media(max-width:1100px){.shell{grid-template-columns:minmax(0,1fr) 310px}.nav{display:none}}@media(max-width:850px){.shell{display:block}main{margin-bottom:20px}#findingList{grid-template-columns:1fr}}</style></head><body>
-<header><div class="brand"><span class="logo">BH</span><div><h1>Directory graph workspace</h1><div class="eyebrow">Full index · Read only · This computer</div></div></div><div class="header-actions"><button id="openGuide">Explain a term</button><button id="stopViewer">Stop viewer</button></div></header>
+<header><div class="brand"><span class="logo">T</span><div><h1>Directory graph workspace</h1><div class="eyebrow">Full index · Read only · This computer</div></div></div><div class="header-actions"><button id="openGuide">Explain a term</button><button id="stopViewer">Stop viewer</button></div></header>
 <div class="shell"><nav class="nav"><div class="eyebrow">Workspace</div><a href="#overview">Overview</a><a href="#findings">Saved findings</a><a href="#search">Objects</a><a href="#pathSearch">Find a path</a><a href="#graph">Interactive graph</a></nav><main>
 <div class="intro" id="overview"><div class="eyebrow">Explore the evidence</div><h2>Your full directory, on demand.</h2><p>Objects and saved findings are paged from disk. Select a path to explore it and review recommended fixes.</p></div>
 <p id="sessionStatus" class="status note" role="status">Opening index…</p><div id="summaryCards" class="grid"></div><div class="notice" id="coverageBanner">Original collection scope and endpoint coverage are not stored in this index. Consult the original report and scan metadata. Recorded paths require validation.</div>
@@ -12,7 +12,7 @@
 /*__GRAPH_MARKUP__*/
 /*__PATH_MARKUP__*/
 <div class="toolbar"><button id="pathContinue" hidden>Continue this path</button></div>
-</main>/*__HELPER_MARKUP__*/</div><footer>BHTest · Sensitive directory data · Read-only review; no directory changes are performed.</footer>
+</main>/*__HELPER_MARKUP__*/</div><footer>Tessera · Sensitive directory data · Read-only review; no directory changes are performed.</footer>
 <script>const DATA=/*__DATA__*/;function fmt(value){return Number(value||0).toLocaleString();}
 /*__HELPER__*/
 /*__FINDINGS__*/

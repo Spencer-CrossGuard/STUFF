@@ -28,22 +28,22 @@ Use **Help & glossary** in the collector header or native viewer. It works offli
 In the native viewer, **F1** opens help for the focused control. In Collected properties, select a field name and press F1, or choose **Explain a property**. Object inspection supplies type-specific interpretation and limitations. The help window supports multi-word search, Ctrl+F and Escape. It reads no AD data and needs no graph index when opened on its own:
 
 ```powershell
-powershell.exe -NoProfile -STA -File .\BHTest.Viewer.ps1 -Help
+powershell.exe -NoProfile -STA -File .\Tessera.Viewer.ps1 -Help
 ```
 
 New HTML reports embed the same authored catalog. Search tasks, property names or relationships in **Help & glossary**; property names in the evidence table are explain buttons with a return to the inspected object. Search explicitly labels its first-16 result preview.
 
 Guidance separates meaning, source evidence, prerequisites, operational impact, proposed remediation, validation, rollback and limits. AddSelf/AddMember, Owns/WriteOwner, remote-management protocols, individual replication prerequisites, LAPS/gMSA/MSA access, enrollment and CA roles now have distinct explanations. Contextual guidance also covers account/group/device management, delegation, credential attributes and PKI objects. An explanation does not enable an unsupported relationship or prove successful exploitation. PATH-PARITY.md and the derivation scope notes remain authoritative about supported behavior.
 
-The structure was compared with the local BloodHound help components and its official edge reference. The text is authored for BHTest's actual evidence, target-specific validation, operational impact and support limits. Help is provided on demand so that the graph remains uncluttered. No analysis/path rules or collection permissions changed; path rules remain 6. Reopen older windows for the new interface. Regenerate an old HTML report to embed the guide; a new AD scan is unnecessary for this text update.
+The structure was compared with the local BloodHound help components and its official edge reference. The text is authored for Tessera's actual evidence, target-specific validation, operational impact and support limits. Help is provided on demand so that the graph remains uncluttered. No analysis/path rules or collection permissions changed; path rules remain 6. Reopen older windows for the new interface. Regenerate an old HTML report to embed the guide; a new AD scan is unnecessary for this text update.
 
 Path rules 6 add ESC1 candidates for complete imported direct-root CA evidence, retaining separate template/CA-service enrollment, trust and host witnesses. LDAP-only inventory and unsupported cases remain excluded. See [ADCS-SCOPE.md](ADCS-SCOPE.md) for required evidence, tests and limits.
 
-# BHTest
+# Tessera
 
-BHTest collects Active Directory data over LDAP and produces a local graph index and an offline HTML report. It runs on Windows with Windows PowerShell 5.1 or PowerShell 7. The embedded C# compiles at startup, and the graph uses the SQLite library supplied by Windows. There is no separate database server or PowerShell module to install.
+Tessera collects Active Directory data over LDAP and produces a local graph index and an offline HTML report. It runs on Windows with Windows PowerShell 5.1 or PowerShell 7. The embedded C# compiles at startup, and the graph uses the SQLite library supplied by Windows. There is no separate database server or PowerShell module to install.
 
-The primary workflow is **Scan → Report → Path Explorer**. BHTest's scanner connects directly to your domain controller using your Windows account or the credentials you supply. SharpHound export import is an optional compatibility feature.
+The primary workflow is **Scan → Report → Path Explorer**. Tessera's scanner connects directly to your domain controller using your Windows account or the credentials you supply. SharpHound export import is an optional compatibility feature.
 
 Reports normally review recognized privileged groups and collected domains. `-Report -TargetIds @('S-1-5-21-...-1555')` additionally reviews explicitly selected collected objects, such as an ordinary lab role. An explicit target is not automatically a Domain Admins or other privileged identity. Target IDs are validated, deduplicated without case sensitivity, and checked when resuming or comparing analysis. Lab fixture setup and full-domain DA/replication scenarios are supplied separately in Set-BHResultsLab.ps1 / Set-BHAdvancedLab.ps1; collection wrappers require ordinary LDAP credentials and a non-elevated process.
 
@@ -53,7 +53,7 @@ Path rule version 5 adds ownership assessments and retains the rule-4 computer G
 
 DCSync analysis intersects `GetChanges` and `GetChangesAll` on the same domain through recorded memberships in groups explicitly marked security-enabled. The individual grants stay in inventory. Inferred DCSync relationships include both grant trustees and bounded membership witnesses, displayed in report/viewer explanations. A common qualifying group remains the path boundary rather than creating redundant edges for all its members. Native replication-related denies or unsupported applicable domain ACEs stop new membership-based inference for that domain. This is a conservative candidate model: it does not prove effective access, infer implicit Everyone/Authenticated Users membership, or use control edges as token membership. Missing group-type information prevents this inference through that group. Merges recompute inferred capabilities from the supplied grants and memberships instead of retaining stale derived edges. Existing directly collected/imported DCSync observations remain separate.
 
-Double-click `Start-BHTest.cmd` to open the scanner. Run `Package-BHTest.ps1` to create a clean ZIP containing the application and source assets; saved scans, credentials, lab scripts and GUI settings are excluded. Extract the whole package before launching it.
+Double-click `Start-Tessera.cmd` to open the scanner. Run `Package-Tessera.ps1` to create a clean ZIP containing the application and source assets; saved scans, credentials, lab scripts and GUI settings are excluded. Extract the whole package before launching it.
 
 At GUI startup, the current Windows user's `LOGONSERVER` is checked in the background using signed/sealed, read-only LDAP. A reachable DC in the current logon domain is selected automatically. If unavailable, the field stays blank and the GUI remains open; saved settings do not silently select a different server. Discovery never replaces a server the user has already typed.
 
@@ -96,13 +96,13 @@ The supplied BloodHound analyzer's OWNER RIGHTS handling informed a conservative
 
 ## Portable full-index desktop viewer (no ports)
 
-Run `./BHTest.Viewer.ps1` and choose a completed `graph.sqlite`, or supply its path:
+Run `./Tessera.Viewer.ps1` and choose a completed `graph.sqlite`, or supply its path:
 
 ```powershell
-./BHTest.Viewer.ps1 -IndexPath './BHData/reports/latest/graph.sqlite'
+./Tessera.Viewer.ps1 -IndexPath './BHData/reports/latest/graph.sqlite'
 ```
 
-Copy **only `BHTest.Viewer.ps1` and `graph.sqlite`** to another Windows computer to review the data. The default viewer uses native Windows Forms controls and an embedded C# graph canvas. It opens **zero listening ports**, makes no network requests, and needs no browser or WebView runtime. It needs Windows PowerShell 5.1 or PowerShell 7 and Windows' SQLite library. There is no shipped executable, installer, Node runtime, downloaded asset, database service, or additional PowerShell module. Normal script execution and `Add-Type` must be permitted by the host's policy; the launcher does not change execution policy.
+Copy **only `Tessera.Viewer.ps1` and `graph.sqlite`** to another Windows computer to review the data. The default viewer uses native Windows Forms controls and an embedded C# graph canvas. It opens **zero listening ports**, makes no network requests, and needs no browser or WebView runtime. It needs Windows PowerShell 5.1 or PowerShell 7 and Windows' SQLite library. There is no shipped executable, installer, Node runtime, downloaded asset, database service, or additional PowerShell module. Normal script execution and `Add-Type` must be permitted by the host's policy; the launcher does not change execution policy.
 
 The launcher opens a desktop window with **Saved findings**, **Objects & relationships**, **Paths & graph**, and a shared plain-language helper. Drag the graph to pan, use the mouse wheel or zoom buttons, select a relationship for its meaning and recommended fix, and use **Read path / Previous node / Next node** for readable navigation. Keyboard arrows pan, +/− zoom, and 0 fits the graph. Source and target buttons in object search populate the path query. Close the window to release the index. Queries run on a background worker; **Cancel query** stops work, and closing during a query cancels it before releasing the index.
 
@@ -115,7 +115,7 @@ Desktop queries use one background worker and an 8 MiB SQLite cache. Candidate p
 The previous localhost browser interface remains available **only when explicitly requested**:
 
 ```powershell
-./BHTest.Viewer.ps1 -Browser -IndexPath './BHData/reports/latest/graph.sqlite'
+./Tessera.Viewer.ps1 -Browser -IndexPath './BHData/reports/latest/graph.sqlite'
 ```
 
 Only browser mode binds an available `127.0.0.1` port and creates a private session token; it never binds a LAN interface. Its `-NoBrowser` and `-NoWindow` options require `-Browser`. The default desktop mode never constructs the HTTP host, requests firewall changes, or falls back to opening a port. Browser mode has four bounded worker slots. Click **Stop viewer** in the browser or close its control window to stop it.
@@ -134,11 +134,11 @@ Launch the WinForms interface with `./BH.Gui.ps1`, or use the CLI:
 
 Workers process one LDAP page at a time and write gzip-compressed NDJSON shards directly from C#. The collector divides work by immediate child container and sweeps the base and its remaining direct children. The scheduler keeps at most the configured number of worker pipelines alive. Start with the default of eight workers and a page size of 1,000. Measure elapsed time and domain-controller load before tuning either setting. `-UncompressedOutput` disables compression for scans and merges; both formats can be read together.
 
-Collection passes each LDAP page directly to the native writer and wakes the scheduler when workers complete. This reduces per-object PowerShell overhead and idle time between small shards without raising worker/page defaults. In the small DC lab, five alternating before/after runs per version reduced median collection time from 1.41 to 0.79 seconds with identical output. These are warm-lab measurements, not a large-domain guarantee; see `../BHTest-AD-Lab/PERFORMANCE-VALIDATION.md`. Restart an already-open collector after updating the native sources.
+Collection passes each LDAP page directly to the native writer and wakes the scheduler when workers complete. This reduces per-object PowerShell overhead and idle time between small shards without raising worker/page defaults. In the small DC lab, five alternating before/after runs per version reduced median collection time from 1.41 to 0.79 seconds with identical output. These are warm-lab measurements, not a large-domain guarantee; see `../Tessera-AD-Lab/PERFORMANCE-VALIDATION.md`. Restart an already-open collector after updating the native sources.
 
 Certificate authorities, templates, certificate stores, issuance policies, configuration containers, sites, site servers, subnets, and domain trust inventory are included by default. `-SkipConfiguration` omits the configuration-partition pass. A scoped OU scan still collects this shared inventory and domain trusts; its account and computer scope remains the selected OU. The legacy `ous` dataset bucket includes generic directory containers; retained `ObjectClasses` distinguishes their actual classes.
 
-Native `ManageCA`/`ManageCertificates` records are unverified directory-ACL mask observations for collector comparison, not evidence of actual CA-service authority. They carry directory provenance and remain in the non-traversable inventory bucket. Policy OID/group links and site associations are also inventory only. `AllExtendedRights` on groups and other non-account objects is retained as inventory rather than assumed to grant identity or membership control; imports apply the same restriction. See `../BHTest-AD-Lab/DIRECTORY-ONLY-VALIDATION.md` for evidence and limits.
+Native `ManageCA`/`ManageCertificates` records are unverified directory-ACL mask observations for collector comparison, not evidence of actual CA-service authority. They carry directory provenance and remain in the non-traversable inventory bucket. Policy OID/group links and site associations are also inventory only. `AllExtendedRights` on groups and other non-account objects is retained as inventory rather than assumed to grant identity or membership control; imports apply the same restriction. See `../Tessera-AD-Lab/DIRECTORY-ONLY-VALIDATION.md` for evidence and limits.
 
 Configuration inventory uses policy OID aliases to resolve template associations across datasets. Generic directory containers, including Builtin, use `objectGUID` rather than a namespace SID as their identity. Recollect older datasets before combining them with new scans where those historical IDs differ.
 
@@ -148,7 +148,7 @@ Enable **Collect endpoint groups and logons using my Windows account** in the GU
 ./BH.Gui.ps1 -Scan -BaseDn 'DC=corp,DC=local' -Server 'dc01.corp.local' -CollectEndpoints -EndpointThreads 4 -EndpointTimeoutSeconds 20
 ```
 
-This phase contacts the collected computers using Windows APIs to enumerate local Administrators, Remote Desktop Users, Distributed COM Users, Remote Management Users, and logged-on users. It produces `AdminTo`, `CanRDP`, `ExecuteDCOM`, `CanPSRemote`, and `HasSession` relationships. It uses the Windows identity running BHTest; credentials supplied for LDAP do not change the endpoint identity. The default is four reusable helper processes and a 20-second deadline per host. An inaccessible or stalled host is recorded individually in `endpoint-status.ndjson.gz` and `endpoint-metadata.json`. A timeout discards that host's unfinished records. The report describes skipped or partial endpoint coverage.
+This phase contacts the collected computers using Windows APIs to enumerate local Administrators, Remote Desktop Users, Distributed COM Users, Remote Management Users, and logged-on users. It produces `AdminTo`, `CanRDP`, `ExecuteDCOM`, `CanPSRemote`, and `HasSession` relationships. It uses the Windows identity running Tessera; credentials supplied for LDAP do not change the endpoint identity. The default is four reusable helper processes and a 20-second deadline per host. An inaccessible or stalled host is recorded individually in `endpoint-status.ndjson.gz` and `endpoint-metadata.json`. A timeout discards that host's unfinished records. The report describes skipped or partial endpoint coverage.
 
 A lost paging session restarts its shard with a fresh cookie and replaces that shard's output. Permanent LDAP failures, worker failures, and object processing errors make the scan incomplete. See `scan-metadata.json` and the worker logs for diagnostics. An incomplete or cancelled scan is excluded from merge and report. The optional CLI switch `-ResolveExternalNames` looks up names for out-of-scope ACL trustees. It adds LDAP and disk work and only changes display labels.
 
@@ -156,7 +156,7 @@ Collection reads both account `memberOf` backlinks and group `member` lists, inc
 
 Attribute-specific write-property ACEs produce `AddKeyCredentialLink` and `WriteSPN` on users/computers, and `AddAllowedToAct` on computers. The parser checks exact schema GUIDs and applies its same-trustee deny suppression. These labels describe recorded write permissions; they do not establish effective access across a full token, successful authentication, or configured delegation. `AllowedToAct` remains the separate relationship read from an existing delegation descriptor. Run `tests/AttributeAcls.ps1` for target-type, inheritance, deny and non-write-right regressions.
 
-Write-property ACEs for the Account Restrictions property set (`4c164200-20c0-11d0-a768-00aa006e0529`) produce `WriteAccountRestrictions` on user/computer targets. Read-property, validated-write and control-access rights alone do not produce this label; existing broad grants retain their generic labels. Matching and broad same-trustee write denies suppress the observation. This records a property-set grant, not proof that every member attribute/account-control bit is writable or that a complete takeover path exists. See `../BHTest-AD-Lab/ACCOUNT-RESTRICTIONS-VALIDATION.md` for low-privilege live checks.
+Write-property ACEs for the Account Restrictions property set (`4c164200-20c0-11d0-a768-00aa006e0529`) produce `WriteAccountRestrictions` on user/computer targets. Read-property, validated-write and control-access rights alone do not produce this label; existing broad grants retain their generic labels. Matching and broad same-trustee write denies suppress the observation. This records a property-set grant, not proof that every member attribute/account-control bit is writable or that a complete takeover path exists. See `../Tessera-AD-Lab/ACCOUNT-RESTRICTIONS-VALIDATION.md` for low-privilege live checks.
 
 The GUI can run selected OUs sequentially. It skips a selected child when its selected ancestor covers it. If a target fails, the rest still run. Automatic reporting requires all selected targets to finish successfully. Completed targets can be reported on individually. The batch log is written under `BHData`.
 
@@ -164,7 +164,7 @@ The GUI can run selected OUs sequentially. It skips a selected child when its se
 
 ### Import a SharpHound export
 
-On the **Report** tab, click **Import SharpHound**, select one or more ZIP or JSON exports, then click **Generate report**. The importer reads the archive entries directly and writes a dataset that can also be merged with native BHTest scans.
+On the **Report** tab, click **Import SharpHound**, select one or more ZIP or JSON exports, then click **Generate report**. The importer reads the archive entries directly and writes a dataset that can also be merged with native Tessera scans.
 
 ```powershell
 ./BH.Gui.ps1 -ImportSharpHound -SharpHoundPaths './collection.zip'
@@ -212,7 +212,7 @@ The relationship review includes up to 40 rows per ACL, access, and inventory bu
 
 **Prioritized exposure candidates** are computed with a disk-backed reverse search from recognized privileged groups and all collected domains. The analysis keeps one shortest recorded chain per identity. It excludes pure membership chains, unresolved aliases, distribution-group membership traversal, and unknown relationship types. Alternative routes and collection gaps still need review. Discovery continues independently of the 200-candidate HTML preview. The HTML pages twelve embedded candidates at a time; use **Path Explorer → Findings** to page through every discovered candidate in SQLite.
 
-Select **Explain path & fixes** for priority reasons, the complete recorded chain, and candidate points where a permission or access change could break that chain. Select **Explain this step** for a recommended change, the exact affected source and target, prerequisites, validation, and rollback guidance. **Export this review plan** saves those details as text. These recommendations require owner and dependency review; BHTest does not change directory permissions or endpoint configuration. A broken chain does not establish that every alternative route is gone.
+Select **Explain path & fixes** for priority reasons, the complete recorded chain, and candidate points where a permission or access change could break that chain. Select **Explain this step** for a recommended change, the exact affected source and target, prerequisites, validation, and rollback guidance. **Export this review plan** saves those details as text. These recommendations require owner and dependency review; Tessera does not change directory permissions or endpoint configuration. A broken chain does not establish that every alternative route is gone.
 
 Priority is a transparent triage score: a recognized target contributes 30, the strongest capability contributes 15–40, direct group-member breadth can add 5 or 15, and chains of one or two hops add 5. Missing source object records subtract 10. Scores of 65 or more receive high review priority. This ranks the discovered sample, rather than establishing global severity or exploitation probability. Effective access, legitimate service roles, disabled accounts, credential protections and collection coverage still need validation.
 
@@ -275,9 +275,9 @@ A synthetic deep-search run processed **1,000,004 objects and 4,000,014 relation
 
 The collector records domains, OUs and containers, users, groups, computers, and GPOs. Relationships include direct and primary group membership, containment, enabled GPO links, and selected ACL rights such as `GenericAll`, `GenericWrite`, `WriteOwner`, `WriteDacl`, `Owns`, `AllExtendedRights`, `ForceChangePassword`, `AddMember`, and `DCSync`. It reads resource-based constrained delegation directly from the target computer's security descriptor to produce `AllowedToAct` edges, and reads `sIDHistory` to produce `HasSIDHistory` edges. It includes applicable inherited ACEs and conservatively suppresses overlapping deny ACEs for the same trustee. This is an approximation of effective access across group tokens and conditional ACEs.
 
-Native BHTest also records constrained delegation targets and resolves their SPNs against collected objects. It preserves trust direction, type, attributes, and remote domain SID; certificate template flags, EKUs, signatures, and CA publications; and selected enrollment rights. These are inventory facts. Complete derived AD CS escalation rules, effective trust traversal, CA service configuration, and forest-wide orchestration remain development work. Endpoint relationships report observed group membership and logged-on users; firewall, policy, token filtering, and effective credentials can change whether an operation is possible. Rescan to obtain facts that earlier BHTest versions did not collect. Older datasets retain their original coverage.
+Native Tessera also records constrained delegation targets and resolves their SPNs against collected objects. It preserves trust direction, type, attributes, and remote domain SID; certificate template flags, EKUs, signatures, and CA publications; and selected enrollment rights. These are inventory facts. Complete derived AD CS escalation rules, effective trust traversal, CA service configuration, and forest-wide orchestration remain development work. Endpoint relationships report observed group membership and logged-on users; firewall, policy, token filtering, and effective credentials can change whether an operation is possible. Rescan to obtain facts that earlier Tessera versions did not collect. Older datasets retain their original coverage.
 
-Live lab validation on 2026-11-14 exercised OU collection on PowerShell 5.1/7, full-domain collection on PowerShell 7, 25-object paging, Deep reports, known fixture paths and negative controls using a default Domain Users LDAP account. It exposed and verified fixes for unreadable account-state attributes and group membership backlinks. See `../BHTest-AD-Lab/LIVE-VALIDATION.md` for results and limits. A comparison against SharpHound `DCOnly`, live paging-session recovery, endpoint access and performance at the intended scale still require validation before relying on coverage decisions. Time collection, merge, indexing, and queries separately.
+Live lab validation on 2026-11-14 exercised OU collection on PowerShell 5.1/7, full-domain collection on PowerShell 7, 25-object paging, Deep reports, known fixture paths and negative controls using a default Domain Users LDAP account. It exposed and verified fixes for unreadable account-state attributes and group membership backlinks. See `../Tessera-AD-Lab/LIVE-VALIDATION.md` for results and limits. A comparison against SharpHound `DCOnly`, live paging-session recovery, endpoint access and performance at the intended scale still require validation before relying on coverage decisions. Time collection, merge, indexing, and queries separately.
 
 Run `./tests/Smoke.ps1`, `./tests/Endpoints.ps1`, and `./tests/Scheduler.ps1` for synthetic regression checks. They cover compressed data, preserved evidence, aliases, bounded shard concurrency, and endpoint process reuse, timeouts, and failures. They do not contact a domain controller or live endpoints.
 
@@ -294,7 +294,7 @@ With Node installed, `node ./tests/ReportHelper.cjs` checks explanation coverage
 ## Source layout
 
 - `BH.Gui.ps1` provides the GUI and CLI entry points.
-- `BHTest.Viewer.ps1` is the standalone full-index viewer; `Build-Viewer.ps1` packages its embedded sources and assets.
+- `Tessera.Viewer.ps1` is the standalone full-index viewer; `Build-Viewer.ps1` packages its embedded sources and assets.
 - `src/BH.Desktop.Native.cs` implements the default native desktop workspace and graph canvas; its explanations/fixes are packaged from the shared report guidance at build time.
 - `src/BH.Viewer.Native.cs`, `src/viewer-launcher.ps1`, `src/viewer-template.html`, and `src/viewer.js` implement its read-only local host, controls, and browser workspace.
 - `src/BH.Gui.Layout.ps1` provides the launcher's shared layout and control styles.

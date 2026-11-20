@@ -108,7 +108,7 @@ function New-BHScanFolder {
         StartedUtc  = (Get-Date).ToUniversalTime().ToString('o')
         FinishedUtc = $null
         Status      = 'Running'
-        Source      = 'BHTest LDAP'
+        Source      = 'Tessera LDAP'
         Counts      = [ordered]@{}
         Errors      = 0
     }

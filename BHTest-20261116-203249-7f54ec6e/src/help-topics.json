@@ -3,7 +3,7 @@
   "Topics": [
     {
       "Key": "start",
-      "Category": "Using BHTest",
+      "Category": "Using Tessera",
       "Title": "Start here: read a finding or trace a path",
       "Summary": "Use Saved findings to review a recorded exposure candidate, Objects & relationships to inspect evidence, and Paths & graph to ask a directed reachability question.",
       "Sections": [
@@ -371,7 +371,7 @@
       "Key": "merge",
       "Category": "Collection and reports",
       "Title": "Merging scans and importing SharpHound",
-      "Summary": "Merge deduplicates supported inventory and relationships; import maps supported SharpHound schema 5/6 records into BHTest's format.",
+      "Summary": "Merge deduplicates supported inventory and relationships; import maps supported SharpHound schema 5/6 records into Tessera's format.",
       "Sections": [
         {
           "Title": "What to check",
@@ -457,7 +457,7 @@
       "Key": "recommendations",
       "Category": "Review findings",
       "Title": "Use remediation guidance safely",
-      "Summary": "Recommendations identify which delegation, membership, configuration or administration practice to review; BHTest applies none of them.",
+      "Summary": "Recommendations identify which delegation, membership, configuration or administration practice to review; Tessera applies none of them.",
       "Sections": [
         {
           "Title": "What to check",
@@ -577,7 +577,7 @@
         },
         {
           "Title": "Limits and interpretation",
-          "Text": "BHTest's GPOAppliesTo model covers supported computer scope only. User/site/loopback policy and actual policy execution are not derived."
+          "Text": "Tessera's GPOAppliesTo model covers supported computer scope only. User/site/loopback policy and actual policy execution are not derived."
         }
       ],
       "Kinds": [
@@ -653,7 +653,7 @@
         },
         {
           "Title": "Limits and interpretation",
-          "Text": "BHTest does not yet derive intermediate-chain ESC paths. Presence in AIA alone does not establish domain authentication trust."
+          "Text": "Tessera does not yet derive intermediate-chain ESC paths. Presence in AIA alone does not establish domain authentication trust."
         }
       ],
       "Kinds": [
@@ -691,7 +691,7 @@
         },
         {
           "Title": "Limits and interpretation",
-          "Text": "HasIssuancePolicy and OIDGroupLink are inventory; BHTest does not derive ESC13 group membership from them."
+          "Text": "HasIssuancePolicy and OIDGroupLink are inventory; Tessera does not derive ESC13 group membership from them."
         }
       ],
       "Kinds": [
@@ -710,7 +710,7 @@
         },
         {
           "Title": "Limits and interpretation",
-          "Text": "BHTest retains trust inventory but does not implement general effective trust traversal or every trust-based BloodHound edge."
+          "Text": "Tessera retains trust inventory but does not implement general effective trust traversal or every trust-based BloodHound edge."
         }
       ],
       "Kinds": [
@@ -798,7 +798,7 @@
       "Key": "field:identity",
       "Category": "Object properties",
       "Title": "IDs, names and directory location",
-      "Summary": "Id is BHTest's stable graph identifier; Sid/Guid are captured directory identifiers, Dn is a directory location, and names are display/search aids.",
+      "Summary": "Id is Tessera's stable graph identifier; Sid/Guid are captured directory identifiers, Dn is a directory location, and names are display/search aids.",
       "Sections": [
         {
           "Title": "What to check",
@@ -1235,7 +1235,7 @@
         },
         {
           "Title": "Limits and interpretation",
-          "Text": "BHTest does not translate these fields into complete trust-based privilege traversal. A trust inventory row alone is not an attack path."
+          "Text": "Tessera does not translate these fields into complete trust-based privilege traversal. A trust inventory row alone is not an attack path."
         }
       ],
       "Fields": [
@@ -1367,7 +1367,7 @@
         },
         {
           "Title": "Limits and interpretation",
-          "Text": "One derived edge can retain one representative qualifying composition; BHTest does not expand every alternate CA/template composition. Grant provenance and captured policy are modeling evidence, not live execution or complete effective access."
+          "Text": "One derived edge can retain one representative qualifying composition; Tessera does not expand every alternate CA/template composition. Grant provenance and captured policy are modeling evidence, not live execution or complete effective access."
         }
       ]
     },
@@ -1375,7 +1375,7 @@
       "Key": "unsupported",
       "Category": "Collection and reports",
       "Title": "Unsupported BloodHound features and unfamiliar labels",
-      "Summary": "Help coverage is separate from collection and path-rule support. BHTest does not implement every BloodHound relationship, derivation, platform or query.",
+      "Summary": "Help coverage is separate from collection and path-rule support. Tessera does not implement every BloodHound relationship, derivation, platform or query.",
       "Terms": "GoldenCert CoerceToTGT SyncLAPSPassword ADCSESC3 ADCSESC4 ADCSESC6a ADCSESC6b ADCSESC9a ADCSESC9b ADCSESC10a ADCSESC10b ADCSESC13 ADCSESC16 HasTrustKeys SameForestTrust ProtectAdminGroups Azure OpenGraph CoerceAndRelayNTLMToSMB CoerceAndRelayNTLMToADCS CoerceAndRelayNTLMToADCSRPC CoerceAndRelayNTLMToLDAP CoerceAndRelayNTLMToLDAPS WriteAltSecurityIdentities WritePublicInformation ServerIs DCFor SpoofSIDHistory AbuseTGTDelegation SyncedToADUser",
       "Sections": [
         {

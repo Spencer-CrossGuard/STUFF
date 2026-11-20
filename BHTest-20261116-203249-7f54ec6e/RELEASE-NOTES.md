@@ -16,7 +16,7 @@ The pathing follow-up compares the local BloodHound analyzer source and fixes fi
 
 The previous November 15 package was missing several collector changes from Claude's November 13 checklist, despite containing newer viewer and DC-picker work. The working source and the user's extracted package shared those omissions. File dates did not establish feature inclusion.
 
-Reference: [Claude branch at bf337133](https://github.com/Spencer-CrossGuard/STUFF/tree/bf337133bee199c681aa8d6ff7b3e4994eb923d6/BHTest-Collector-Fixed).
+Reference: [Claude branch at bf337133](https://github.com/Spencer-CrossGuard/STUFF/tree/bf337133bee199c681aa8d6ff7b3e4994eb923d6/Tessera-Collector-Fixed).
 
 Integrated functional changes from `008aba7`, `91764c0`, `3a5387f`, `890d8d6` and `d18854b`: GenericWrite mapping, delegation host aliases, default ACL noise filtering, missing native ACL labels, ACL trace helper, forest name lookup and its command-line action, clear missing-index handling, detailed progress/timing, correct scan-bar fractions, and direct reports over multiple inputs. Existing mappings and newer native APIs were preserved rather than overwritten. The standalone viewer is rebuilt from the combined source, unlike the reference checklist's older embedded viewer.
 

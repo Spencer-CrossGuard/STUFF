@@ -148,10 +148,10 @@ function renderComparison() {
   }
 }
 function exportFindingPlan(finding) {
-  const lines=['BHTest review plan',finding.Source.n+' → '+finding.Target.n,'Status: '+finding.Observation,'Priority: '+finding.Priority,'Triage score: '+finding.Score,'Generated: '+DATA.GeneratedUtc,'Actual hops: '+(finding.HopCount??finding.Steps.length),'Path preview limited: '+Boolean(finding.PathLimited),'Next path ID: '+(finding.NextPathId||'none'),'','Priority reasons:',...finding.Reasons,'','Recorded steps:'];
+  const lines=['Tessera review plan',finding.Source.n+' → '+finding.Target.n,'Status: '+finding.Observation,'Priority: '+finding.Priority,'Triage score: '+finding.Score,'Generated: '+DATA.GeneratedUtc,'Actual hops: '+(finding.HopCount??finding.Steps.length),'Path preview limited: '+Boolean(finding.PathLimited),'Next path ID: '+(finding.NextPathId||'none'),'','Priority reasons:',...finding.Reasons,'','Recorded steps:'];
   finding.Steps.forEach((s,i)=>{const p=remediationFor(s);lines.push(`${i+1}. ${p.affected}`,`Source ID: ${s.s}`,`Target ID: ${s.t}`,`Meaning: ${p.meaning}`,`Prerequisites: ${p.prerequisites}`,`Recommended change: ${p.action}`,`Before: ${p.before}`,`Change impact: ${p.caution}`,`Validate: ${p.validation}`,`Rollback: ${p.rollback}`,'');});
   lines.push('Coverage notes:',...(DATA.CoverageNotes||[]),'',DATA.Analysis.Method,'A missing relationship can reflect scope or collection differences. Validate changes against a comparable collection.');
-  const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/plain;charset=utf-8'}));link.download='bhtest-review-'+finding.Id.slice(0,12)+'.txt';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+  const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/plain;charset=utf-8'}));link.download='tessera-review-'+finding.Id.slice(0,12)+'.txt';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
 }
 function initializeFindings() {
   if(!DATA.Analysis)return;

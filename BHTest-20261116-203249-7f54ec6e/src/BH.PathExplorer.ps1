@@ -140,7 +140,7 @@ function New-BHPathExplorer {
     $showFindingBrowser = ${function:Show-BHFindingBrowser}
     $findingsButton.Add_Click({
         if (Test-Path -LiteralPath $indexPath.Text -PathType Leaf) { & $showFindingBrowser $tab.FindForm() (Get-Item -LiteralPath $indexPath.Text).FullName }
-        else { [System.Windows.Forms.MessageBox]::Show('Choose an existing graph.sqlite first.', 'BHTest') | Out-Null }
+        else { [System.Windows.Forms.MessageBox]::Show('Choose an existing graph.sqlite first.', 'Tessera') | Out-Null }
     }.GetNewClosure())
     $fileRow.Controls.Add($fileLabel, 0, 0)
     $fileRow.Controls.Add($indexPath, 1, 0)

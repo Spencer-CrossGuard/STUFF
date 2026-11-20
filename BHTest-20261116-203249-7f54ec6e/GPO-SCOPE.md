@@ -30,7 +30,7 @@ The retained real lab data was rebuilt into `C:\Users\Administrator\Documents\Co
 
 Tests cover default Read/Apply grants, broad permissions, denies, enabled/disabled/enforced links, block boundaries, plain containers, nested split permissions, group cycles, distribution/unknown groups, WMI/flag/functionality stops, disabled computers, missing data, ambiguous parents, conflicting snapshots, merge recomputation, traversal guards, real LDAP-entry serialization and report compatibility. Native viewer checks verify scope witnesses, clear verification limits, relationship filters and unchanged snapshot hashes. Both PowerShell 5.1 and 7 are used. These are fixtures and saved-data checks; no live endpoint, SYSVOL/RSoP validation or new ordinary-user GPO scan was performed for this increment.
 
-The local BloodHound `packages/go/analysis/ad/queries.go` and `filters.go` were reviewed for affected-object traversal, enforcement and inheritance behavior. Its schema declares `GPOAppliesTo`; the reviewed code also uses GPLink/Contains traversal for GPO scope queries. BHTest's explicit scope projection is not claimed to be a port of a complete BloodHound postprocessing pipeline. Full one-for-one parity remains unverified.
+The local BloodHound `packages/go/analysis/ad/queries.go` and `filters.go` were reviewed for affected-object traversal, enforcement and inheritance behavior. Its schema declares `GPOAppliesTo`; the reviewed code also uses GPLink/Contains traversal for GPO scope queries. Tessera's explicit scope projection is not claimed to be a port of a complete BloodHound postprocessing pipeline. Full one-for-one parity remains unverified.
 
 Microsoft references used for the implementation:
 

@@ -479,7 +479,7 @@ switch ($PSCmdlet.ParameterSetName) {
 
         # ---- Form shell: header banner + tabs ---------------------------------
         $form = New-Object System.Windows.Forms.Form
-        $buildName='BHTest'
+        $buildName='Tessera'
         try{$buildFile=Join-Path $PSScriptRoot 'BUILD-INFO.json';if(Test-Path -LiteralPath $buildFile){$build=Get-Content -LiteralPath $buildFile -Raw|ConvertFrom-Json;if($build.Package){$buildName=$build.Package}}}catch{}
         $form.Text = $buildName+' | Active Directory Attack-Path Auditor'
         $form.Size = New-Object System.Drawing.Size(1120, 850)
@@ -495,7 +495,7 @@ switch ($PSCmdlet.ParameterSetName) {
         $header.Height = 80
         $header.BackColor = $clrHeaderBg
         $lblTitle = New-Object System.Windows.Forms.Label
-        $lblTitle.Text = 'BHTest'
+        $lblTitle.Text = 'Tessera'
         $lblTitle.Font = $fontHeader
         $lblTitle.ForeColor = $clrHeaderFg
         $lblTitle.AutoSize = $true
@@ -510,8 +510,8 @@ switch ($PSCmdlet.ParameterSetName) {
         $btnHelp.Name='HelpLibrary';$btnHelp.Dock='Right';$btnHelp.Width=160
         $helpAction={
             try{
-                $helpViewer=Join-Path $PSScriptRoot 'BHTest.Viewer.ps1'
-                if(-not (Test-Path -LiteralPath $helpViewer)){throw 'The packaged viewer/help library is missing. Re-extract the complete BHTest package.'}
+                $helpViewer=Join-Path $PSScriptRoot 'Tessera.Viewer.ps1'
+                if(-not (Test-Path -LiteralPath $helpViewer)){throw 'The packaged viewer/help library is missing. Re-extract the complete Tessera package.'}
                 Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -WindowStyle Hidden -ArgumentList ('-NoProfile -STA -File "'+$helpViewer+'" -Help')
             }catch{[void][System.Windows.Forms.MessageBox]::Show($form,$_.Exception.Message,'Help library unavailable')}
         }
@@ -1449,7 +1449,7 @@ switch ($PSCmdlet.ParameterSetName) {
                     }
                 }
                 if(-not $report){throw 'No completed report is available. Generate a report first.'}
-                $viewer=Join-Path $PSScriptRoot 'BHTest.Viewer.ps1'
+                $viewer=Join-Path $PSScriptRoot 'Tessera.Viewer.ps1'
                 $graph=Join-Path (Split-Path $report -Parent) 'graph.sqlite'
                 if(-not (Test-Path -LiteralPath $graph)){throw 'The report has no graph.sqlite alongside it.'}
                 Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -WindowStyle Hidden -ArgumentList ('-NoProfile -STA -File "'+$viewer+'" -IndexPath "'+$graph+'"')
@@ -1573,7 +1573,7 @@ switch ($PSCmdlet.ParameterSetName) {
                 $dialog = [System.Windows.Forms.OpenFileDialog]::new()
                 try {
                     $dialog.Title = 'Select graph.sqlite from the previous report'
-                    $dialog.Filter = 'BHTest graph index (*.sqlite)|*.sqlite'
+                    $dialog.Filter = 'Tessera graph index (*.sqlite)|*.sqlite'
                     if ($dialog.ShowDialog($form) -ne 'OK') { return }
                     $baselinePath = $dialog.FileName
                 }

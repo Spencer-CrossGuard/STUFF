@@ -1,6 +1,6 @@
 {
   "CreatedUtc": "2026-11-17T04:32:49.4724760Z",
-  "Package": "BHTest-20261116-203249-7f54ec6e",
+  "Package": "Tessera-20261116-203249-7f54ec6e",
   "Files": [
     {
       "Path": "ADCS-SCOPE.md",
@@ -11,7 +11,7 @@
       "Sha256": "4446210DD1074EEA56115EBF605E688771E7163147B3244D0128D3B1395708C0"
     },
     {
-      "Path": "BHTest.Viewer.ps1",
+      "Path": "Tessera.Viewer.ps1",
       "Sha256": "3FC065C3B44DDCDEC3FDB37AD9567256B1C93AFFA699184A46C27D5BB075EA90"
     },
     {
@@ -195,7 +195,7 @@
       "Sha256": "C368C4B195A062CA1396497B951AC2DD16DA28E0A5B802747602E62EE7FFBAC2"
     },
     {
-      "Path": "Start-BHTest.cmd",
+      "Path": "Start-Tessera.cmd",
       "Sha256": "8C904CE470D3FAA6F6441E896ED80794E821200FCF4B07ED32578D3E32629BB0"
     },
     {

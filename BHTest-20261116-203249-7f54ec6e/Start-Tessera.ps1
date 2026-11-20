@@ -87,7 +87,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:consoleHidden = $false
-if ($PSBoundParameters.Count -eq 0) {
+if ($PSBoundParameters.Count -eq 0) { try { Set-Location -LiteralPath $env:TEMP; [Environment]::CurrentDirectory = $env:TEMP } catch { }
     # Hide the PowerShell window when this script owns it (double-click launch). A console you opened yourself is left alone.
     try {
         if (-not ('TesseraConsole' -as [type])) { Add-Type -TypeDefinition 'public static class TesseraConsole { [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern System.IntPtr GetConsoleWindow(); [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint GetConsoleProcessList(uint[] list, uint count); [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(System.IntPtr window, int command); public static bool HideIfOwned() { System.IntPtr w = GetConsoleWindow(); if (w == System.IntPtr.Zero) return false; if (GetConsoleProcessList(new uint[4], 4) > 1) return false; ShowWindow(w, 0); return true; } public static void Show() { System.IntPtr w = GetConsoleWindow(); if (w != System.IntPtr.Zero) ShowWindow(w, 5); } }' -ErrorAction Stop }
@@ -1765,6 +1765,6 @@ switch ($PSCmdlet.ParameterSetName) {
             $txtPass.Clear()
         })
         $form.Add_Shown({ $form.Activate(); Start-BHDcDiscovery })
-        [void]$form.ShowDialog()
+        [void]$form.ShowDialog(); try { Get-Job | Stop-Job -ErrorAction SilentlyContinue } catch { }; [Environment]::Exit(0)
     }
 }

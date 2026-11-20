@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 [CmdletBinding()]
-param([string]$Root=(Join-Path $PSScriptRoot 'BHData'))
+param([string]$Root=(Join-Path (Split-Path $PSScriptRoot -Parent) 'BHData'))
 $ErrorActionPreference='Stop'
 $rootDirectory=[IO.Path]::GetFullPath($Root)
 New-Item -ItemType Directory -Path $rootDirectory -Force|Out-Null

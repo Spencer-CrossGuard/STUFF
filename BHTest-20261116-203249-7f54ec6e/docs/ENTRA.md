@@ -2,9 +2,9 @@
 
 Run from this folder in Windows PowerShell 5.1 or PowerShell 7:
 
-    .\Collect-Entra.ps1 -TenantId <tenant guid> -ClientId <app guid> -CertificateThumbprint <thumbprint>
-    .\Collect-Entra.ps1 -TenantId <tenant guid> -DeviceCode
-    .\Collect-Entra.ps1 -TenantId <tenant guid> -ResumeDirectory .\entra-scans\entra-xxxxxxxx-yyyymmdd-hhmmss
+    .\tools\Collect-Entra.ps1 -TenantId <tenant guid> -ClientId <app guid> -CertificateThumbprint <thumbprint>
+    .\tools\Collect-Entra.ps1 -TenantId <tenant guid> -DeviceCode
+    .\tools\Collect-Entra.ps1 -TenantId <tenant guid> -ResumeDirectory .\BHData\entra-scans\entra-xxxxxxxx-yyyymmdd-hhmmss
 
 Cloud defaults to USGovDoD (dod-graph.microsoft.us, login.microsoftonline.us). Use `-Cloud USGov` for GCC High, `-Cloud Global` for commercial.
 

@@ -60,7 +60,7 @@ Resume: pass -ResumeDirectory with the folder of an interrupted run.
         [securestring]$ClientSecret,
         [switch]$DeviceCode,
         [securestring]$AccessToken,
-        [string]$OutputRoot = (Join-Path (Get-Location) 'entra-scans'),
+        [string]$OutputRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) 'BHData\entra-scans'),
         [string]$ResumeDirectory,
         [ValidateRange(1, 64)][int]$Threads = 16,
         [ValidateSet('All', 'RoleAssignable', 'None')][string]$Members = 'All',

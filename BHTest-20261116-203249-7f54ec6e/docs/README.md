@@ -3,7 +3,7 @@
 Enable **Read missing group types (import)** on the Report tab to supplement unknown imported group classifications. It uses the DC and identity on the connection tab. The option defaults off; ordinary offline imports make no LDAP connections. Known true/false classifications are preserved, including known observations in duplicate records. Malformed source Booleans remain unknown, with their original value retained for inspection.
 
 ```powershell
-.\BH.Gui.ps1 -ImportSharpHound -SharpHoundPaths 'C:\exports\collection.zip' `
+.\Start-Tessera.ps1 -ImportSharpHound -SharpHoundPaths 'C:\exports\collection.zip' `
   -EnrichGroupTypes -Server 'dc01.corp.local' -ImportOutputRoot 'C:\BHData\scans'
 ```
 
@@ -53,7 +53,7 @@ Path rule version 5 adds ownership assessments and retains the rule-4 computer G
 
 DCSync analysis intersects `GetChanges` and `GetChangesAll` on the same domain through recorded memberships in groups explicitly marked security-enabled. The individual grants stay in inventory. Inferred DCSync relationships include both grant trustees and bounded membership witnesses, displayed in report/viewer explanations. A common qualifying group remains the path boundary rather than creating redundant edges for all its members. Native replication-related denies or unsupported applicable domain ACEs stop new membership-based inference for that domain. This is a conservative candidate model: it does not prove effective access, infer implicit Everyone/Authenticated Users membership, or use control edges as token membership. Missing group-type information prevents this inference through that group. Merges recompute inferred capabilities from the supplied grants and memberships instead of retaining stale derived edges. Existing directly collected/imported DCSync observations remain separate.
 
-Double-click `Start-Tessera.cmd` to open the scanner. Run `Package-Tessera.ps1` to create a clean ZIP containing the application and source assets; saved scans, credentials, lab scripts and GUI settings are excluded. Extract the whole package before launching it.
+Run `.\Start-Tessera.ps1` (or right-click it and choose Run with PowerShell) to open the scanner. Folder layout: the root holds only `Start-Tessera.ps1` and `Tessera.Viewer.ps1`; `src` is the application code, `tools` has the Entra collector (`Collect-Entra.ps1`), `Trace-ObjectAcl.ps1`, `Catalog-BHOutputs.ps1` and `Open-Latest-Report.cmd`, `docs` has the documentation, and scans and reports are written to `BHData`. Run `Package-Tessera.ps1` to create a clean ZIP containing the application and source assets; saved scans, credentials, lab scripts and GUI settings are excluded. Extract the whole package before launching it.
 
 At GUI startup, the current Windows user's `LOGONSERVER` is checked in the background using signed/sealed, read-only LDAP. A reachable DC in the current logon domain is selected automatically. If unavailable, the field stays blank and the GUI remains open; saved settings do not silently select a different server. Discovery never replaces a server the user has already typed.
 
@@ -74,7 +74,7 @@ The GUI title shows the installed package ID from BUILD-INFO.json. Release ZIPs 
 - All-properties WriteProperty grants now produce GenericWrite. Attribute-specific AddSelf, AddKeyCredentialLink and WriteSPN remain; WriteGPLink is collected on domains, OUs and sites. Default SYSTEM and Enterprise Domain Controllers ACL grants are filtered as noise.
 - Constrained-delegation SPNs resolve through host aliases and computer DNS names, retaining legacy full-SPN aliases. Shared hosts mapping to multiple accounts remain unresolved rather than selecting an arbitrary account. Re-scan for newly serialized delegation targets; re-report to rebuild aliases.
 - Native gMSA reader candidates come from the `msDS-GroupMSAMembership` descriptor on actual gMSAs, with explicit evidence and unverified effective access. Plain ReadProperty on the account's managed-password attribute is not enough. Applicable denies/unsupported membership ACEs stop native inference. The collector does not request `msDS-ManagedPassword` or retrieve passwords. LAPS remains import-only; no live gMSA endpoint or password-retrieval test is claimed.
-- GUI collection enables external-name resolution. It searches the local domain and then port 3268 on the selected DC for forest names, excluding foreign-security-principal stand-ins. Non-GC/unreachable servers warn and continue with unresolved SIDs; trusted external forests are not searched. Existing scans can be named with `BH.Gui.ps1 -ResolveNames -ScanPaths <folder> -Server <dc>`, then re-reported.
+- GUI collection enables external-name resolution. It searches the local domain and then port 3268 on the selected DC for forest names, excluding foreign-security-principal stand-ins. Non-GC/unreachable servers warn and continue with unresolved SIDs; trusted external forests are not searched. Existing scans can be named with `Start-Tessera.ps1 -ResolveNames -ScanPaths <folder> -Server <dc>`, then re-reported.
 - Index loading and merge writing report file/step progress; GUI merge/report status includes step detail, elapsed/quiet time and recent output-file activity. The scan bar uses completed targets and containers. Automatic multi-OU reports read their scan folders directly without an intermediate merge. Counting and final commits may remain indeterminate.
 - `Trace-ObjectAcl.ps1` provides read-only live/offline ACL diagnostics and a missing-index check before LDAP. Native source fingerprints now reject stale loaded assemblies after source changes. Close existing windows and launch a fresh process after updating.
 
@@ -88,7 +88,7 @@ Relationship guidance is tailored to the target object when its type is known. T
 
 The output catalog links directly to the latest completed run. The GUI keeps detailed collection/report diagnostics in the run log while showing stage progress and target summaries. Closing the GUI stops its active jobs and marks an unfinished collection cancelled. `-Gui -Credential $credential` can supply an existing PSCredential for LDAP; its password is never saved in GUI settings. Endpoint collection continues to use the process's Windows account and remains off by default.
 
-For a simpler scan-and-report workflow, use `./BH.Gui.ps1 -Run -BaseDn 'DC=corp,DC=contoso,DC=com' -Server 'DC1.corp.contoso.com' -Credential (Get-Credential)`. It creates one unique folder under `BHData/runs`, prints a short result, and saves detailed messages in that run's logs. Open `BHData/START-HERE.html` or `BHData/runs/INDEX.html` to find runs. Each run has its own START-HERE page, status manifest, `report/report.html`, `report/graph.sqlite`, `data` and `logs`; report/index files remain together. Failed or cancelled GUI runs receive a distinct status. Existing `-Scan`, `-Merge` and `-Report` commands retain their scripting outputs.
+For a simpler scan-and-report workflow, use `./Start-Tessera.ps1 -Run -BaseDn 'DC=corp,DC=contoso,DC=com' -Server 'DC1.corp.contoso.com' -Credential (Get-Credential)`. It creates one unique folder under `BHData/runs`, prints a short result, and saves detailed messages in that run's logs. Open `BHData/START-HERE.html` or `BHData/runs/INDEX.html` to find runs. Each run has its own START-HERE page, status manifest, `report/report.html`, `report/graph.sqlite`, `data` and `logs`; report/index files remain together. Failed or cancelled GUI runs receive a distinct status. Existing `-Scan`, `-Merge` and `-Report` commands retain their scripting outputs.
 
 GUI scan batches use the same layout, including separate folders for multiple targets and automatic reports. Custom collection roots are respected. Older outputs are preserved in a collapsed catalog section; `./Catalog-BHOutputs.ps1` refreshes that catalog without moving or deleting data. Manually chosen report folders retain their existing behavior.
 
@@ -126,10 +126,10 @@ Developers regenerate the standalone script with `./Build-Viewer.ps1` after chan
 
 ## Run a scan
 
-Launch the WinForms interface with `./BH.Gui.ps1`, or use the CLI:
+Launch the WinForms interface with `./Start-Tessera.ps1`, or use the CLI:
 
 ```powershell
-./BH.Gui.ps1 -Scan -BaseDn 'DC=corp,DC=local' -Server 'dc01.corp.local' -OutputRoot './BHData/scans'
+./Start-Tessera.ps1 -Scan -BaseDn 'DC=corp,DC=local' -Server 'dc01.corp.local' -OutputRoot './BHData/scans'
 ```
 
 Workers process one LDAP page at a time and write gzip-compressed NDJSON shards directly from C#. The collector divides work by immediate child container and sweeps the base and its remaining direct children. The scheduler keeps at most the configured number of worker pipelines alive. Start with the default of eight workers and a page size of 1,000. Measure elapsed time and domain-controller load before tuning either setting. `-UncompressedOutput` disables compression for scans and merges; both formats can be read together.
@@ -145,7 +145,7 @@ Configuration inventory uses policy OID aliases to resolve template associations
 Enable **Collect endpoint groups and logons using my Windows account** in the GUI for native endpoint collection, or use:
 
 ```powershell
-./BH.Gui.ps1 -Scan -BaseDn 'DC=corp,DC=local' -Server 'dc01.corp.local' -CollectEndpoints -EndpointThreads 4 -EndpointTimeoutSeconds 20
+./Start-Tessera.ps1 -Scan -BaseDn 'DC=corp,DC=local' -Server 'dc01.corp.local' -CollectEndpoints -EndpointThreads 4 -EndpointTimeoutSeconds 20
 ```
 
 This phase contacts the collected computers using Windows APIs to enumerate local Administrators, Remote Desktop Users, Distributed COM Users, Remote Management Users, and logged-on users. It produces `AdminTo`, `CanRDP`, `ExecuteDCOM`, `CanPSRemote`, and `HasSession` relationships. It uses the Windows identity running Tessera; credentials supplied for LDAP do not change the endpoint identity. The default is four reusable helper processes and a 20-second deadline per host. An inaccessible or stalled host is recorded individually in `endpoint-status.ndjson.gz` and `endpoint-metadata.json`. A timeout discards that host's unfinished records. The report describes skipped or partial endpoint coverage.
@@ -167,7 +167,7 @@ The GUI can run selected OUs sequentially. It skips a selected child when its se
 On the **Report** tab, click **Import SharpHound**, select one or more ZIP or JSON exports, then click **Generate report**. The importer reads the archive entries directly and writes a dataset that can also be merged with native Tessera scans.
 
 ```powershell
-./BH.Gui.ps1 -ImportSharpHound -SharpHoundPaths './collection.zip'
+./Start-Tessera.ps1 -ImportSharpHound -SharpHoundPaths './collection.zip'
 ```
 
 The importer supports SharpHound JSON schemas 5 and 6. It maps selected ACLs, memberships, sessions, local group rights, and delegation to graph edges. Trust and certificate inventory is preserved where supported, and the report flags the limits of its analysis. ESC1 direct-root candidates are derived under the documented imported-evidence prerequisites; other AD CS and general trust derivations remain unsupported. The importer records skipped object types in the dataset and report.
@@ -179,8 +179,8 @@ New native scans identify GPOs by their AD `objectGUID`, matching SharpHound obj
 A report accepts raw scan folders and merged datasets, and resolves DN-based edge endpoints and deduplicates relationships across all its inputs. Run a merge when you want a reusable NDJSON dataset:
 
 ```powershell
-./BH.Gui.ps1 -Merge -ScanPaths './BHData/scans/scan-a', './BHData/scans/scan-b' -MergeOutputRoot './BHData/merged'
-./BH.Gui.ps1 -Report -DatasetPaths './BHData/merged/merged-example' -ReportOutputDir './BHData/reports/latest'
+./Start-Tessera.ps1 -Merge -ScanPaths './BHData/scans/scan-a', './BHData/scans/scan-b' -MergeOutputRoot './BHData/merged'
+./Start-Tessera.ps1 -Report -DatasetPaths './BHData/merged/merged-example' -ReportOutputDir './BHData/reports/latest'
 ```
 
 - `report.html` is a portable dashboard with counts, ACL rankings, a name-search sample, and a bounded four-hop neighborhood around privileged group SIDs. Large datasets still produce a preview. The browser does not load the full graph.
@@ -188,8 +188,8 @@ A report accepts raw scan folders and merged datasets, and resolves DN-based edg
 - Add `-ExportCsv` or check **Export CSV** in the GUI to write the original NDJSON source rows as CSV under `assets`. Use the merged dataset as the input when you want deduplicated CSV rows.
 
 ```powershell
-./BH.Gui.ps1 -SearchName 'Domain Admins' -IndexPath './BHData/reports/latest/graph.sqlite'
-./BH.Gui.ps1 -PathQuery -SourceId 'S-1-5-21-10-20-30-1105' -TargetId 'S-1-5-21-10-20-30-512' -IndexPath './BHData/reports/latest/graph.sqlite'
+./Start-Tessera.ps1 -SearchName 'Domain Admins' -IndexPath './BHData/reports/latest/graph.sqlite'
+./Start-Tessera.ps1 -PathQuery -SourceId 'S-1-5-21-10-20-30-1105' -TargetId 'S-1-5-21-10-20-30-512' -IndexPath './BHData/reports/latest/graph.sqlite'
 ```
 
 In the GUI, open **Path Explorer** and choose **Use last report** or browse to a graph index. Search for the source and target by name or exact ID, select a result on each side, and choose **Find shortest path**. Use **Filter edges** to restrict which relationships the search can traverse. The CLI equivalent is `-EdgeTypes @('MemberOf', 'AdminTo', 'HasSession')`. The table shows each hop and its relationship. Hover over an endpoint to see its ID.
@@ -219,13 +219,13 @@ Priority is a transparent triage score: a recognized target contributes 30, the 
 Object inspection embeds up to 500 detailed records, prioritizing finding steps and preview objects. Records over 16,384 characters remain in the SQLite index; long property values and lists are shortened for display. Collection metadata describes dataset windows, and merge processing timestamps are identified separately. To see an arbitrary retained object, open **Path Explorer**, search by name or ID, and double-click a result. Its properties and up to 100 related edges appear in a details window. The CLI equivalent is:
 
 ```powershell
-./BH.Gui.ps1 -InspectObject 'S-1-5-21-10-20-30-1105' -IndexPath './BHData/reports/latest/graph.sqlite'
+./Start-Tessera.ps1 -InspectObject 'S-1-5-21-10-20-30-1105' -IndexPath './BHData/reports/latest/graph.sqlite'
 ```
 
 For before-and-after review, check **Compare previous index** in the launcher's Report tab, then select the earlier report's `graph.sqlite` when generating. Choose a new output folder to preserve the baseline. Or run:
 
 ```powershell
-./BH.Gui.ps1 -Report -DatasetPaths './BHData/scans/after' -ReportOutputDir './BHData/reports/after' -BaselineIndexPath './BHData/reports/before/graph.sqlite'
+./Start-Tessera.ps1 -Report -DatasetPaths './BHData/scans/after' -ReportOutputDir './BHData/reports/after' -BaselineIndexPath './BHData/reports/before/graph.sqlite'
 ```
 
 Comparison counts cover the full indexes: added/removed object IDs and added/removed/unchanged relationships, including alias-resolution state. Properties changing on an existing object are not counted as new objects. Current candidate paths are checked against the baseline's recorded relationships, and bounded baseline candidates are checked against the current index. The report distinguishes **Newly observed path**, **Still observed**, and **No longer observed**. Missing evidence can reflect changed scope, permissions, method or collection time, so “no longer observed” does not mean “fixed.” Relationship samples are capped at 50 per direction. Snapshot comparison adds full-index read work and is optional.
@@ -242,13 +242,13 @@ The report displays **Completed**, **DepthLimit**, **VisitLimit**, **TimeLimit**
 
 ```powershell
 # Deep analysis: no hop or identity cap; ten-minute traversal budget by default.
-./BH.Gui.ps1 -Report -DatasetPaths './BHData/scans/scan-a' -ReportOutputDir './BHData/reports/deep-a' -AnalysisMode Deep
+./Start-Tessera.ps1 -Report -DatasetPaths './BHData/scans/scan-a' -ReportOutputDir './BHData/reports/deep-a' -AnalysisMode Deep
 
 # Continue the same checkpoint with a larger per-invocation time budget.
-./BH.Gui.ps1 -Report -DatasetPaths './BHData/scans/scan-a' -ReportOutputDir './BHData/reports/deep-a' -AnalysisMode Deep -ResumeAnalysis -AnalysisSeconds 1800
+./Start-Tessera.ps1 -Report -DatasetPaths './BHData/scans/scan-a' -ReportOutputDir './BHData/reports/deep-a' -AnalysisMode Deep -ResumeAnalysis -AnalysisSeconds 1800
 
 # Explicit budgets; zero removes the selected cap.
-./BH.Gui.ps1 -Report -DatasetPaths './BHData/scans/scan-a' -ReportOutputDir './BHData/reports/custom' -AnalysisMode Deep -AnalysisDepth 0 -AnalysisVisitLimit 2000000 -AnalysisSeconds 0
+./Start-Tessera.ps1 -Report -DatasetPaths './BHData/scans/scan-a' -ReportOutputDir './BHData/reports/custom' -AnalysisMode Deep -AnalysisDepth 0 -AnalysisVisitLimit 2000000 -AnalysisSeconds 0
 ```
 
 For CLI cancellation, create an `analysis.cancel` file in the output folder while traversal is running. Starting or resuming a report clears an old cancellation marker. Concurrent report writes to the same output folder are rejected with an exclusive process-held lock. Use separate output folders for concurrent runs. Resume keeps existing discoveries; lowering a budget does not remove candidates already found.
@@ -256,9 +256,9 @@ For CLI cancellation, create an `analysis.cancel` file in the output folder whil
 **Path Explorer → Findings** loads 100 rows per page from the complete discovery index. Its Next/Previous controls use score-and-sequence cursors, rather than loading the full list or repeatedly skipping earlier rows. The CLI equivalents are:
 
 ```powershell
-./BH.Gui.ps1 -FindingPage -IndexPath './BHData/reports/deep-a/graph.sqlite' -FindingPageSize 100
+./Start-Tessera.ps1 -FindingPage -IndexPath './BHData/reports/deep-a/graph.sqlite' -FindingPageSize 100
 # For the next page, use the last row's Score and Sequence.
-./BH.Gui.ps1 -FindingPage -IndexPath './BHData/reports/deep-a/graph.sqlite' -AfterScore 70 -AfterSequence 501 -FindingPageSize 100
+./Start-Tessera.ps1 -FindingPage -IndexPath './BHData/reports/deep-a/graph.sqlite' -AfterScore 70 -AfterSequence 501 -FindingPageSize 100
 ```
 
 A finding's displayed path is limited to its first 256 steps independently of traversal depth. Such a finding has `PathLimited`, the actual `HopCount`, and `NextPathId`; its truncated preview is not used to assert that the complete path persisted or disappeared in a baseline. Continue its recorded chain with `-TraceFinding <NextPathId> -IndexPath <graph.sqlite>`, which returns up to 256 more steps per call. Direct shortest-path queries in Path Explorer retain their separate identity visit budget. The SQLite library supplied by Windows must support row-value comparisons (SQLite 3.15 or later).
@@ -293,7 +293,7 @@ With Node installed, `node ./tests/ReportHelper.cjs` checks explanation coverage
 
 ## Source layout
 
-- `BH.Gui.ps1` provides the GUI and CLI entry points.
+- `Start-Tessera.ps1` provides the GUI and CLI entry points.
 - `Tessera.Viewer.ps1` is the standalone full-index viewer; `Build-Viewer.ps1` packages its embedded sources and assets.
 - `src/BH.Desktop.Native.cs` implements the default native desktop workspace and graph canvas; its explanations/fixes are packaged from the shared report guidance at build time.
 - `src/BH.Viewer.Native.cs`, `src/viewer-launcher.ps1`, `src/viewer-template.html`, and `src/viewer.js` implement its read-only local host, controls, and browser workspace.
@@ -317,7 +317,7 @@ The native viewer now accepts up to two optional waypoints: **Source → Via 1 �
 CLI example (object IDs, up to two intermediate IDs):
 
 ```powershell
-.\BH.Gui.ps1 -PathQuery -IndexPath 'C:\BH\report\graph.sqlite' -SourceId '<source ID>' -ViaIds '<first ID>','<second ID>' -TargetId '<target ID>'
+.\Start-Tessera.ps1 -PathQuery -IndexPath 'C:\BH\report\graph.sqlite' -SourceId '<source ID>' -ViaIds '<first ID>','<second ID>' -TargetId '<target ID>'
 ```
 
 `-MaxVisited` is a per-leg limit (2–250,000; default 250,000), while `-MaxPathEdges` caps the merged graph (1–10,000; default 2,000). In a branching or waypoint result, table rows are unique relationships rather than consecutive chain steps. At small window sizes, scroll the path workspace to reach the full relationship table; the graph keeps a usable minimum height.

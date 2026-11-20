@@ -11,10 +11,10 @@ ACL edges stored in graph.sqlite for that object and flags any whose source
 SID is NOT a trustee in the live DACL.
 
 .EXAMPLE
-.\Trace-ObjectAcl.ps1 -Server dc01.corp.local -Identity jsmith -IndexPath .\BHData\reports\latest\graph.sqlite
+.\tools\Trace-ObjectAcl.ps1 -Server dc01.corp.local -Identity jsmith -IndexPath .\BHData\reports\latest\graph.sqlite
 
 .EXAMPLE
-.\Trace-ObjectAcl.ps1 -Identity 'S-1-5-21-1-2-3-1105' -DescriptorHex 0100048014...
+.\tools\Trace-ObjectAcl.ps1 -Identity 'S-1-5-21-1-2-3-1105' -DescriptorHex 0100048014...
 Offline mode: decode a descriptor you already exported, no LDAP needed.
 #>
 [CmdletBinding(DefaultParameterSetName = 'Live')]
@@ -36,7 +36,7 @@ if ($IndexPath) {
     }
     $IndexPath = (Resolve-Path -LiteralPath $IndexPath).ProviderPath
 }
-Import-Module (Join-Path $PSScriptRoot 'src/BH.Core.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../src/BH.Core.psm1') -Force -DisableNameChecking
 Initialize-BHNative
 
 $guidNames = @{

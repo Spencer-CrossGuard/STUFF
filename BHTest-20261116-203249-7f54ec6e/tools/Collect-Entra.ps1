@@ -1,7 +1,7 @@
 # Collects an Entra ID tenant (same parameters as Start-BHEntraCollection). Examples:
-#   .\Collect-Entra.ps1 -TenantId <guid> -ClientId <guid> -CertificateThumbprint <thumbprint>
-#   .\Collect-Entra.ps1 -TenantId <guid> -DeviceCode            (sign in as a Global Reader)
-#   .\Collect-Entra.ps1 -TenantId <guid> -ResumeDirectory .\entra-scans\entra-xxxx   (continue a stopped run)
+#   .\tools\Collect-Entra.ps1 -TenantId <guid> -ClientId <guid> -CertificateThumbprint <thumbprint>
+#   .\tools\Collect-Entra.ps1 -TenantId <guid> -DeviceCode            (sign in as a Global Reader)
+#   .\tools\Collect-Entra.ps1 -TenantId <guid> -ResumeDirectory .\BHData\entra-scans\entra-xxxx   (continue a stopped run)
 # Defaults to USGovDoD. Add -Cloud USGov for GCC High or -Cloud Global for commercial.
 [CmdletBinding()]
 param(
@@ -14,7 +14,7 @@ param(
     [securestring]$ClientSecret,
     [switch]$DeviceCode,
     [securestring]$AccessToken,
-    [string]$OutputRoot = (Join-Path (Get-Location) 'entra-scans'),
+    [string]$OutputRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) 'BHData\entra-scans'),
     [string]$ResumeDirectory,
     [ValidateRange(1, 64)][int]$Threads = 16,
     [ValidateSet('All', 'RoleAssignable', 'None')][string]$Members = 'All',
@@ -27,5 +27,5 @@ param(
     [string]$LoginUrl
 )
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'src\BH.Entra.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '..\src\BH.Entra.psm1') -Force -DisableNameChecking
 Start-BHEntraCollection @PSBoundParameters

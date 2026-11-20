@@ -6,17 +6,17 @@ WinForms GUI by default, or runs one headless action (-Scan / -Merge /
 -Report) for scripting/scheduling.
 
 .EXAMPLE
-.\BH.Gui.ps1
+.\Start-Tessera.ps1
 Launches the GUI (Scan / Merge / Report tabs).
 
 .EXAMPLE
-.\BH.Gui.ps1 -Scan -BaseDn 'OU=Site-A,DC=corp,DC=local' -Server 'dc01.corp.local' -OutputRoot 'C:\BH\scans'
+.\Start-Tessera.ps1 -Scan -BaseDn 'OU=Site-A,DC=corp,DC=local' -Server 'dc01.corp.local' -OutputRoot 'C:\BH\scans'
 
 .EXAMPLE
-.\BH.Gui.ps1 -Merge -ScanPaths 'C:\BH\scans\scan-...-A','C:\BH\scans\scan-...-B' -MergeOutputRoot 'C:\BH\merged'
+.\Start-Tessera.ps1 -Merge -ScanPaths 'C:\BH\scans\scan-...-A','C:\BH\scans\scan-...-B' -MergeOutputRoot 'C:\BH\merged'
 
 .EXAMPLE
-.\BH.Gui.ps1 -Report -DatasetPaths 'C:\BH\merged\merged-...' -ReportOutputDir 'C:\BH\reports\latest'
+.\Start-Tessera.ps1 -Report -DatasetPaths 'C:\BH\merged\merged-...' -ReportOutputDir 'C:\BH\reports\latest'
 #>
 [CmdletBinding(DefaultParameterSetName = 'Gui')]
 param(
@@ -86,6 +86,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($PSBoundParameters.Count -eq 0 -and [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { if ($PSVersionTable.PSEdition -eq 'Desktop') { $env:PSModulePath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules;$env:ProgramFiles\WindowsPowerShell\Modules" }; $hostExe = (Get-Process -Id $PID).Path; & $hostExe -NoProfile -STA -File $PSCommandPath; if ($LASTEXITCODE) { Read-Host 'Press Enter to close' }; exit $LASTEXITCODE }
 if (-not $DataRoot) { $DataRoot = Join-Path $PSScriptRoot 'BHData' }
 $srcDir = Join-Path $PSScriptRoot 'src'
 . (Join-Path $srcDir 'BH.LatestReport.ps1')
@@ -103,7 +104,7 @@ switch ($PSCmdlet.ParameterSetName) {
             $collectedDataset=Start-BHCollection -BaseDn $BaseDn -Server $Server -Credential $Credential -OutputRoot (Join-Path $runInfo.Directory 'data\scans') -MaxThreads $MaxThreads -PageSize $PageSize 6>> $runInfo.LogPath 3>> $warningsPath
             $completedReportPath=Start-BHReport -DatasetPaths @($collectedDataset) -OutputDir (Join-Path $runInfo.Directory 'report') 6>> $runInfo.LogPath 3>> $warningsPath
             Update-BHRun -Directory $runInfo.Directory -Status Complete -ReportPath $completedReportPath
-            try { & (Join-Path $PSScriptRoot 'Catalog-BHOutputs.ps1') -Root $DataRoot } catch { Add-Content $runInfo.LogPath ('Catalog refresh: '+$_.Exception.Message) }
+            try { & (Join-Path $PSScriptRoot 'tools\Catalog-BHOutputs.ps1') -Root $DataRoot } catch { Add-Content $runInfo.LogPath ('Catalog refresh: '+$_.Exception.Message) }
             Write-Host "Complete. Open: $(Join-Path $runInfo.Directory 'START-HERE.html')"
             [pscustomobject]@{Status='Complete';RunDirectory=$runInfo.Directory;ReportPath=$completedReportPath;IndexPath=(Join-Path (Split-Path $completedReportPath -Parent) 'graph.sqlite')}
         } catch {
@@ -480,7 +481,7 @@ switch ($PSCmdlet.ParameterSetName) {
         # ---- Form shell: header banner + tabs ---------------------------------
         $form = New-Object System.Windows.Forms.Form
         $buildName='Tessera'
-        try{$buildFile=Join-Path $PSScriptRoot 'BUILD-INFO.json';if(Test-Path -LiteralPath $buildFile){$build=Get-Content -LiteralPath $buildFile -Raw|ConvertFrom-Json;if($build.Package){$buildName=$build.Package}}}catch{}
+        try{$buildFile=Join-Path $PSScriptRoot 'src\BUILD-INFO.json';if(Test-Path -LiteralPath $buildFile){$build=Get-Content -LiteralPath $buildFile -Raw|ConvertFrom-Json;if($build.Package){$buildName=$build.Package}}}catch{}
         $form.Text = $buildName+' | Active Directory Attack-Path Auditor'
         $form.Size = New-Object System.Drawing.Size(1120, 850)
         $form.MinimumSize = New-Object System.Drawing.Size(880, 695)
@@ -1100,7 +1101,7 @@ switch ($PSCmdlet.ParameterSetName) {
             if ($failed.Count -gt 0) { Update-BHRun -Directory $runDirectory -Status Failed -ErrorMessage "$($failed.Count) scan target(s) failed."; throw "$($failed.Count) scan target(s) failed. See the batch log." }
             if($autoReport){Update-BHRun -Directory $runDirectory -Status Complete -ReportPath $reportPath}else{Update-BHRun -Directory $runDirectory -Status Complete}
             Log "Open $(Join-Path $runDirectory 'START-HERE.html') for this run."
-            try { & (Join-Path (Split-Path $srcDir -Parent) 'Catalog-BHOutputs.ps1') -Root (Split-Path (Split-Path $runDirectory -Parent) -Parent) } catch { Log ('Catalog refresh: '+$_.Exception.Message) }
+            try { & (Join-Path (Split-Path $srcDir -Parent) 'tools\Catalog-BHOutputs.ps1') -Root (Split-Path (Split-Path $runDirectory -Parent) -Parent) } catch { Log ('Catalog refresh: '+$_.Exception.Message) }
             Log 'Batch finished.'
         }
 

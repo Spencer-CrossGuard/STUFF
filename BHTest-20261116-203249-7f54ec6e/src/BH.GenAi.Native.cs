@@ -420,90 +420,146 @@
         }
     }
 
-    // ---- window
-    internal sealed class GenAiWindow : Form
+    // ---- session state and the tab inside the viewer (WinForms)
+    /// <summary>Kept in memory for as long as the viewer is open. Never written to disk.</summary>
+    internal static class GenAiSession
     {
-        private readonly List<Dictionary<string, object>> edges;
-        private readonly TextBox key, baseUrl, preview, answer;
+        public static string Key = "";
+        public static string Address = "https://api.genai.mil";
+        public static string Model = "gemini-3.8-flash";
+        public static bool HideNames = true;
+        public static int Task;
+        public static long Credits;
+        public static int Requests;
+        public static void Forget() { Key = ""; }
+    }
+
+    internal sealed class GenAiPanel : UserControl
+    {
+        private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81),
+            Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202), Accent = Color.FromArgb(121, 179, 255), Danger = Color.FromArgb(255, 135, 150);
+        private List<Dictionary<string, object>> edges = new List<Dictionary<string, object>>();
+        private string source = "";
+        private readonly TextBox key, address, preview, answer;
         private readonly ComboBox model, task;
-        private readonly CheckBox hide;
-        private readonly Label status, laneNote;
-        private readonly Button send, cancel, copy, load;
+        private readonly CheckBox hide, showSent;
+        private readonly Label context, status, keyState;
+        private readonly Button useKey, forgetKey, send, cancel, copy, load;
+        private readonly SplitContainer split;
         private GenAiPrompt prompt;
         private GenAiClient client;
         private Thread worker;
-        private long sessionCredits;
-        private int sessionRequests;
         private string rawAnswer = "";
 
-        public GenAiWindow(List<Dictionary<string, object>> edges)
+        public GenAiPanel()
         {
-            this.edges = edges;
-            Text = "GenAI.mil assistant"; Name = "GenAiWindow"; Size = new Size(1000, 800); MinimumSize = new Size(820, 640);
-            StartPosition = FormStartPosition.CenterParent; Font = new Font("Segoe UI", 10);
-            BackColor = Color.FromArgb(12, 18, 32); ForeColor = Color.FromArgb(237, 243, 252);
-
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(12) };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
+            Name = "GenAiPanel"; Dock = DockStyle.Fill; BackColor = PanelColor; ForeColor = Ink;
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 66));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
             Controls.Add(layout);
 
-            layout.Controls.Add(Note("Sends only the text in the box below, over HTTPS, when you press Send. The API key is typed each time, kept in memory and cleared when this window closes. Names are hidden by default."), 0, 0);
+            // Row 0: title and what is loaded
+            var head = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), BackColor = PanelColor };
+            head.Controls.Add(new Label { Text = "GENAI.MIL ASSISTANT", AutoSize = true, ForeColor = Accent, Font = new Font("Segoe UI", 10, FontStyle.Bold), Margin = new Padding(2, 6, 14, 0) });
+            context = new Label { Text = "", AutoSize = true, ForeColor = Muted, Margin = new Padding(0, 7, 0, 0) };
+            head.Controls.Add(context);
+            layout.Controls.Add(head, 0, 0);
 
-            var row1 = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 6, RowCount = 1, Margin = new Padding(0) };
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70)); row1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60)); row1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60)); row1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26));
-            row1.Controls.Add(Note("API key"), 0, 0);
-            key = new TextBox { Dock = DockStyle.Fill, UseSystemPasswordChar = true, Name = "GenAiKey", Margin = new Padding(0, 6, 8, 0) }; row1.Controls.Add(key, 1, 0);
-            row1.Controls.Add(Note("Model"), 2, 0);
-            model = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, Name = "GenAiModel", Margin = new Padding(0, 6, 8, 0) };
-            foreach (GenAiModels.Info info in GenAiModels.Known) model.Items.Add(info.Id);
-            model.Text = "gemini-3.8-flash"; model.TextChanged += delegate { laneNote.Text = GenAiModels.Describe(model.Text.Trim()); };
-            row1.Controls.Add(model, 3, 0);
-            row1.Controls.Add(Note("Address"), 4, 0);
-            baseUrl = new TextBox { Dock = DockStyle.Fill, Text = "https://api.genai.mil", Name = "GenAiAddress", Margin = new Padding(0, 6, 0, 0) }; row1.Controls.Add(baseUrl, 5, 0);
-            layout.Controls.Add(row1, 0, 1);
+            // Row 1: connection (key is typed once per viewer session)
+            var conn = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), BackColor = PanelColor };
+            conn.Controls.Add(Small("API key"));
+            key = new TextBox { Name = "GenAiKey", Width = 250, UseSystemPasswordChar = true, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(4, 6, 4, 4) };
+            key.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { SaveKey(); e.SuppressKeyPress = true; } };
+            conn.Controls.Add(key);
+            useKey = Flat("Use key", "GenAiUseKey"); useKey.Click += delegate { SaveKey(); };
+            forgetKey = Flat("Forget key", "GenAiForgetKey"); forgetKey.Click += delegate { GenAiSession.Forget(); RefreshKeyState(); SetStatus("The key was removed from memory.", false); };
+            keyState = new Label { AutoSize = true, ForeColor = Muted, Margin = new Padding(6, 9, 10, 0) };
+            conn.Controls.Add(useKey); conn.Controls.Add(forgetKey); conn.Controls.Add(keyState);
+            conn.Controls.Add(Small("Address"));
+            address = new TextBox { Name = "GenAiAddress", Width = 210, Text = GenAiSession.Address, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(4, 6, 4, 4) };
+            address.TextChanged += delegate { GenAiSession.Address = address.Text.Trim(); };
+            conn.Controls.Add(address);
+            layout.Controls.Add(conn, 0, 1);
 
-            var row2 = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0), WrapContents = false };
-            task = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300, Name = "GenAiTask" };
+            // Row 2: request
+            var req = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), BackColor = PanelColor };
+            task = new ComboBox { Name = "GenAiTask", DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Bg, ForeColor = Ink, Width = 255, Margin = new Padding(4, 6, 4, 4) };
             foreach (string t in GenAiPrompt.Tasks) task.Items.Add(t);
-            task.SelectedIndex = 0; task.SelectedIndexChanged += delegate { Rebuild(); };
-            hide = new CheckBox { Text = "Hide object names", Checked = true, AutoSize = true, Name = "GenAiHide", Margin = new Padding(12, 6, 12, 0), ForeColor = ForeColor };
-            hide.CheckedChanged += delegate { Rebuild(); };
-            load = new Button { Text = "Load models", AutoSize = true, Name = "GenAiLoadModels" }; load.Click += delegate { LoadModels(); };
-            row2.Controls.Add(task); row2.Controls.Add(hide); row2.Controls.Add(load);
-            layout.Controls.Add(row2, 0, 2);
+            task.SelectedIndex = Math.Max(0, Math.Min(GenAiSession.Task, task.Items.Count - 1));
+            task.SelectedIndexChanged += delegate { GenAiSession.Task = task.SelectedIndex; Rebuild(); };
+            model = new ComboBox { Name = "GenAiModel", DropDownStyle = ComboBoxStyle.DropDown, BackColor = Bg, ForeColor = Ink, Width = 235, Margin = new Padding(4, 6, 4, 4) };
+            foreach (GenAiModels.Info info in GenAiModels.Known) model.Items.Add(info.Id);
+            model.Text = GenAiSession.Model;
+            model.TextChanged += delegate { GenAiSession.Model = model.Text.Trim(); ShowLane(); };
+            load = Flat("Load models", "GenAiLoadModels"); load.Click += delegate { LoadModels(); };
+            hide = new CheckBox { Name = "GenAiHide", Text = "Hide object names", Checked = GenAiSession.HideNames, AutoSize = true, ForeColor = Ink, Margin = new Padding(10, 8, 6, 0) };
+            hide.CheckedChanged += delegate { GenAiSession.HideNames = hide.Checked; Rebuild(); };
+            send = Flat("Send", "GenAiSend"); send.Click += delegate { Send(); };
+            cancel = Flat("Cancel", "GenAiCancel"); cancel.Enabled = false; cancel.Click += delegate { if (client != null) client.Cancel(); };
+            copy = Flat("Copy answer", "GenAiCopy"); copy.Click += delegate { if (answer.Text.Length > 0) Clipboard.SetText(answer.Text); };
+            req.Controls.AddRange(new Control[] { task, model, load, hide, send, cancel, copy });
+            layout.Controls.Add(req, 0, 2);
 
-            preview = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Name = "GenAiPreview", Font = new Font("Consolas", 9.5f), BackColor = Color.FromArgb(19, 30, 48), ForeColor = ForeColor };
-            layout.Controls.Add(preview, 0, 3);
+            // Row 3: answer on top, optional preview of exactly what is sent below
+            split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 8, BackColor = Line };
+            answer = new TextBox { Name = "GenAiAnswer", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10.5f) };
+            split.Panel1.Controls.Add(answer);
+            preview = new TextBox { Name = "GenAiPreview", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Muted, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f) };
+            split.Panel2.Controls.Add(preview);
+            split.Panel2Collapsed = true;
+            layout.Controls.Add(split, 0, 3);
 
-            var row3 = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0), WrapContents = false };
-            send = new Button { Text = "Send", Width = 110, Name = "GenAiSend" }; send.Click += delegate { Send(); };
-            cancel = new Button { Text = "Cancel", Width = 90, Enabled = false, Name = "GenAiCancel" }; cancel.Click += delegate { if (client != null) client.Cancel(); };
-            copy = new Button { Text = "Copy answer", Width = 120, Name = "GenAiCopy" }; copy.Click += delegate { if (answer.Text.Length > 0) Clipboard.SetText(answer.Text); };
-            laneNote = Note(GenAiModels.Describe(model.Text)); laneNote.AutoSize = true; laneNote.Margin = new Padding(14, 8, 0, 0);
-            row3.Controls.Add(send); row3.Controls.Add(cancel); row3.Controls.Add(copy); row3.Controls.Add(laneNote);
-            layout.Controls.Add(row3, 0, 4);
+            // Row 4: status, lane and the preview switch
+            var foot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
+            foot.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); foot.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 215));
+            status = new Label { Name = "GenAiStatus", Dock = DockStyle.Fill, ForeColor = Muted, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+            foot.Controls.Add(status, 0, 0);
+            showSent = new CheckBox { Name = "GenAiShowSent", Text = "Show what will be sent", AutoSize = true, ForeColor = Ink, Anchor = AnchorStyles.Right, Margin = new Padding(0, 6, 4, 0) };
+            showSent.CheckedChanged += delegate { split.Panel2Collapsed = !showSent.Checked; if (showSent.Checked) split.SplitterDistance = Math.Max(120, split.Height * 55 / 100); };
+            foot.Controls.Add(showSent, 1, 0);
+            layout.Controls.Add(foot, 0, 4);
 
-            answer = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Name = "GenAiAnswer", BackColor = Color.FromArgb(19, 30, 48), ForeColor = ForeColor };
-            layout.Controls.Add(answer, 0, 5);
-
-            status = Note("Ready. Review the text above, enter your API key and press Send. The answer is generated by an AI model and needs human review before any change.");
-            layout.Controls.Add(status, 0, 6);
-
-            FormClosing += delegate { if (client != null) client.Cancel(); key.Text = ""; };
-            Rebuild();
+            Disposed += delegate { if (client != null) client.Cancel(); };
+            RefreshKeyState(); ShowLane(); Rebuild();
         }
 
-        private static Label Note(string text)
+        private static Label Small(string text) { return new Label { Text = text, AutoSize = true, ForeColor = Muted, Margin = new Padding(6, 9, 2, 0) }; }
+
+        private static Button Flat(string text, string name)
         {
-            return new Label { Text = text, Dock = DockStyle.Fill, ForeColor = Color.FromArgb(164, 180, 202), TextAlign = ContentAlignment.MiddleLeft };
+            var b = new Button { Name = name, Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 39, 60), ForeColor = Ink, Margin = new Padding(4, 3, 4, 3), Padding = new Padding(6, 0, 6, 0) };
+            b.FlatAppearance.BorderColor = Line; return b;
+        }
+
+        private void SetStatus(string text, bool error) { status.Text = text; status.ForeColor = error ? Danger : Muted; }
+
+        private void ShowLane() { if (status != null && worker == null) SetStatus(GenAiModels.Describe(model.Text.Trim()), false); }
+
+        private void SaveKey()
+        {
+            string typed = key.Text.Trim();
+            if (typed.Length > 0) { GenAiSession.Key = typed; key.Text = ""; }
+            RefreshKeyState();
+        }
+
+        private void RefreshKeyState()
+        {
+            bool have = GenAiSession.Key.Length > 0;
+            key.Visible = !have; useKey.Visible = !have; forgetKey.Visible = have;
+            keyState.Text = have ? "Key saved for this session (memory only)." : "Typed once, kept in memory until the viewer closes.";
+        }
+
+        /// <summary>Shows the relationships to explain and switches the prompt to them.</summary>
+        public void LoadEdges(List<Dictionary<string, object>> items, string what)
+        {
+            edges = items ?? new List<Dictionary<string, object>>(); source = what ?? "";
+            rawAnswer = ""; answer.Text = "";
+            Rebuild();
+            SetStatus(prompt.Steps + " relationships ready. " + (GenAiSession.Key.Length > 0 ? "Press Send." : "Enter your API key, then press Send."), false);
         }
 
         private void Rebuild()
@@ -511,71 +567,73 @@
             prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; });
             preview.Text = "SYSTEM INSTRUCTIONS\r\n" + prompt.System.Replace("\n", "\r\n") + "\r\n\r\nQUESTION\r\n" + prompt.User.Replace("\n", "\r\n");
             int approx = (prompt.System.Length + prompt.User.Length) / 4;
-            if (status != null) status.Text = prompt.Steps + " relationships, about " + approx + " tokens to send." + (prompt.Truncated ? " The list was shortened to " + GenAiPrompt.MaxSteps + " steps." : "");
+            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included");
         }
+
+        private string UsableKey() { SaveKey(); return GenAiSession.Key; }
 
         private void LoadModels()
         {
-            if (key.Text.Trim().Length == 0) { status.Text = "Enter the API key first."; return; }
-            string address = baseUrl.Text, secret = key.Text.Trim();
-            load.Enabled = false; status.Text = "Loading the model list...";
+            string secret = UsableKey();
+            if (secret.Length == 0) { SetStatus("Enter the API key first.", true); return; }
+            string where = address.Text; load.Enabled = false; SetStatus("Loading the model list...", false);
             var thread = new Thread(delegate()
             {
-                string error; var ids = new GenAiClient(address, secret).ListModels(out error);
-                try
+                string error; var ids = new GenAiClient(where, secret).ListModels(out error);
+                Post(delegate
                 {
-                    BeginInvoke(new Action(delegate
-                    {
-                        load.Enabled = true;
-                        if (error != null) { status.Text = error; return; }
-                        string current = model.Text; model.Items.Clear();
-                        foreach (string id in ids) if (id.IndexOf("embedding", StringComparison.OrdinalIgnoreCase) < 0) model.Items.Add(id);
-                        model.Text = current; status.Text = ids.Count + " models available.";
-                    }));
-                }
-                catch (InvalidOperationException) { }
+                    load.Enabled = true;
+                    if (error != null) { SetStatus(error, true); return; }
+                    string current = model.Text; model.Items.Clear();
+                    foreach (string id in ids) if (id.IndexOf("embedding", StringComparison.OrdinalIgnoreCase) < 0) model.Items.Add(id);
+                    model.Text = current; SetStatus(ids.Count + " models available.", false);
+                });
             });
             thread.IsBackground = true; thread.Start();
+        }
+
+        private void Post(Action action)
+        {
+            try { if (IsHandleCreated && !IsDisposed) BeginInvoke(action); } catch (InvalidOperationException) { }
         }
 
         private void Send()
         {
             if (worker != null && worker.IsAlive) return;
-            string secret = key.Text.Trim(), chosen = model.Text.Trim();
-            if (secret.Length == 0) { status.Text = "Enter your API key."; return; }
-            if (chosen.Length == 0) { status.Text = "Choose a model."; return; }
-            if (prompt.Steps == 0) { status.Text = "There are no relationships to explain. Open a path first."; return; }
-            if ((prompt.System.Length + prompt.User.Length) / 4 > 20000) { status.Text = "The question is too large for one request. Choose a shorter path."; return; }
-            rawAnswer = ""; answer.Text = ""; send.Enabled = false; cancel.Enabled = true; status.Text = "Sending to " + baseUrl.Text.Trim() + " ...";
-            client = new GenAiClient(baseUrl.Text, secret);
+            string secret = UsableKey(), chosen = model.Text.Trim();
+            if (secret.Length == 0) { SetStatus("Enter your API key.", true); return; }
+            if (chosen.Length == 0) { SetStatus("Choose a model.", true); return; }
+            if (prompt.Steps == 0) { SetStatus("Nothing to explain yet. Open a path or select a relationship, then choose Ask GenAI.mil.", true); return; }
+            if ((prompt.System.Length + prompt.User.Length) / 4 > 20000) { SetStatus("The question is too large for one request. Choose a shorter path.", true); return; }
+            rawAnswer = ""; answer.Text = ""; send.Enabled = false; cancel.Enabled = true; SetStatus("Sending to " + address.Text.Trim() + " ...", false);
+            client = new GenAiClient(address.Text, secret);
             var current = client; var currentPrompt = prompt; string system = prompt.System, user = prompt.User;
             worker = new Thread(delegate()
             {
                 GenAiResult result = current.Chat(chosen, system, user, 2500, delegate(string piece)
                 {
-                    try
+                    Post(delegate
                     {
-                        BeginInvoke(new Action(delegate
-                        {
-                            rawAnswer += piece; answer.Text = currentPrompt.Restore(rawAnswer).Replace("\r\n", "\n").Replace("\n", "\r\n");
-                            answer.SelectionStart = answer.Text.Length; answer.ScrollToCaret(); status.Text = "Receiving...";
-                        }));
-                    }
-                    catch (InvalidOperationException) { }
+                        rawAnswer += piece; answer.Text = Crlf(currentPrompt.Restore(rawAnswer));
+                        answer.SelectionStart = answer.Text.Length; answer.ScrollToCaret(); SetStatus("Receiving...", false);
+                    });
                 });
-                try
+                Post(delegate
                 {
-                    BeginInvoke(new Action(delegate
+                    send.Enabled = true; cancel.Enabled = false; GenAiSession.Requests++;
+                    if (result.Error != null)
                     {
-                        send.Enabled = true; cancel.Enabled = false; sessionRequests++;
-                        if (result.Error != null) { status.Text = result.Error; return; }
-                        sessionCredits += GenAiModels.Credits(chosen, result.PromptTokens, result.CompletionTokens);
-                        answer.Text = currentPrompt.Restore(result.Text).Replace("\r\n", "\n").Replace("\n", "\r\n");
-                        status.Text = "Done. Tokens in " + result.PromptTokens + ", out " + result.CompletionTokens + ". Credits used this window: " + sessionCredits + " of 2,000,000 per day (" + sessionRequests + " requests). Review before acting.";
-                    }));
-                }
-                catch (InvalidOperationException) { }
+                        SetStatus(result.Error, true);
+                        if (result.Status == 401 || result.Status == 403) { GenAiSession.Forget(); RefreshKeyState(); }
+                        return;
+                    }
+                    GenAiSession.Credits += GenAiModels.Credits(chosen, result.PromptTokens, result.CompletionTokens);
+                    answer.Text = Crlf(currentPrompt.Restore(result.Text));
+                    SetStatus("Done. Tokens in " + result.PromptTokens + ", out " + result.CompletionTokens + ". Credits used in this session: " + GenAiSession.Credits + " of 2,000,000 per day (" + GenAiSession.Requests + " requests). Review before acting.", false);
+                });
             });
             worker.IsBackground = true; worker.Start();
         }
+
+        private static string Crlf(string text) { return (text ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"); }
     }

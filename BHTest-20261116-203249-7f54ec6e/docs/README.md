@@ -326,3 +326,16 @@ Custom path queries in the desktop viewer and collector Path Explorer now show e
 
 Read [PATH-PARITY.md](PATH-PARITY.md) for the source comparison, validation, and remaining BloodHound features. Full one-for-one BloodHound product compatibility is not claimed. Existing saved findings keep their original representative chains.
 
+## GenAI.mil assistant (desktop viewer)
+
+On the Path tab, **Ask GenAI.mil** opens an assistant for the path or route currently shown. It explains the path in plain language and recommends fixes, using the relationship glossary already built into the viewer.
+
+* Nothing is sent until you press **Send**. The exact text that will be sent is shown first in the window.
+* You type your API key each time. It is held in memory only and cleared when the window closes; it is never written to disk and no environment variable is read.
+* **Hide object names** is on by default. Names are replaced by tokens such as USER-1 and GROUP-1 before sending, SIDs and distinguished names are never included, and the answer is translated back to real names locally.
+* Endpoint: `POST {address}/v1/chat/completions` (default address `https://api.genai.mil`), with `GET /v1/models` behind **Load models**. The viewer streams the answer as it arrives and falls back to a single response if the service does not stream.
+* Default model is `gemini-3.8-flash` (Assist lane: 0 credits, no tools needed). Standard-lane models are listed with their credit multipliers; the window shows tokens used and the credits spent in that window.
+* Tier 0 limits are respected: requests are spaced at least 1.1 seconds apart (60 per minute), a prompt over about 20,000 tokens is refused, paths are limited to the first 60 relationships, and a 429 reply waits for Retry-After once before reporting.
+* The answer is machine generated. Treat it as a starting point and verify any change with the steps in the viewer's own guidance.
+
+The viewer otherwise stays read-only with no listening ports. This feature is the only part that makes an outbound connection, and only when you press Send or Load models.

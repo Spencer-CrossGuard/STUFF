@@ -21,7 +21,8 @@ function Initialize-BHNative {
         (Join-Path $PSScriptRoot 'BH.Collection.Native.cs'),
         (Join-Path $PSScriptRoot 'BH.Endpoint.Native.cs'),
         (Join-Path $PSScriptRoot 'BH.Analysis.Native.cs'),
-        (Join-Path $PSScriptRoot 'BH.Deep.Native.cs')
+        (Join-Path $PSScriptRoot 'BH.Deep.Native.cs'),
+        (Join-Path $PSScriptRoot 'BH.Entra.Native.cs')
     )
     foreach ($p in $csPaths) {
         if (-not (Test-Path $p)) {
@@ -41,7 +42,7 @@ function Initialize-BHNative {
         'BH.Native.JsonRecordReader', 'BH.Native.ProgressCounters', 'BH.Native.OuIndex',
         'BH.Native.CsvExporter', 'BH.Native.UnresolvedSids',
         'BH.Native.DirectoryIdentity', 'BH.Native.GraphIndex', 'BH.Native.GraphRelationships', 'BH.Native.SharpHoundImport',
-        'BH.Native.LdapEntryWriter', 'BH.Native.NdjsonReader', 'BH.Native.EndpointNative', 'BH.Native.ExposureAnalysis', 'BH.Native.DiskAnalysisProgress'
+        'BH.Native.LdapEntryWriter', 'BH.Native.NdjsonReader', 'BH.Native.EndpointNative', 'BH.Native.ExposureAnalysis', 'BH.Native.DiskAnalysisProgress', 'BH.Entra.EntraCollector'
     )
     $missing = @($requiredTypes | Where-Object { -not ([System.Management.Automation.PSTypeName]$_).Type })
 
@@ -70,7 +71,7 @@ function Initialize-BHNative {
     # Compile together so the index and CSV writer can reuse NDJSON primitives.
     Add-Type -AssemblyName System.DirectoryServices.Protocols
     if ($PSVersionTable.PSEdition -eq 'Desktop') {
-        Add-Type -Path $csPaths -ReferencedAssemblies 'System.dll','System.Core.dll','System.Xml.dll','System.DirectoryServices.Protocols.dll' -ErrorAction Stop
+        Add-Type -Path $csPaths -ReferencedAssemblies 'System.dll','System.Core.dll','System.Xml.dll','System.DirectoryServices.Protocols.dll','System.Net.Http.dll' -ErrorAction Stop
     }
     else {
         $references = @([System.DirectoryServices.Protocols.LdapConnection].Assembly.Location) +

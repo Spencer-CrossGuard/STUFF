@@ -925,7 +925,7 @@ namespace BH.Native
             p.User = user.ToString();
             p.System = "You are a defensive Active Directory and Entra ID security analyst helping an administrator who owns the environment. " +
                 "Use only the relationships supplied. Do not invent objects, permissions or facts, and say plainly when something cannot be known from this data. " +
-                "Write in plain text without markdown tables. Sections, in order, only for what was asked: " +
+                "Format with simple Markdown that is easy to read: a short heading per section (## SUMMARY), numbered or bulleted lists, **bold** for object names and relationship names, and no tables. Sections, in order, only for what was asked: " +
                 "SUMMARY (two sentences); WHY IT MATTERS (what an attacker who controls the first object could reach); STEP BY STEP (one short line per relationship); " +
                 "RECOMMENDED FIXES (numbered, safest and highest impact first, each naming the exact relationship to change and the least disruptive change); " +
                 "HOW TO VERIFY AND ROLL BACK; CONFIDENCE AND LIMITS. " +
@@ -965,6 +965,155 @@ namespace BH.Native
         }
     }
 
+    /// <summary>Turns the Markdown an AI model returns into RTF for a RichTextBox: headings, bold, italic, code, lists, quotes and tables.</summary>
+    internal static class GenAiMarkdown
+    {
+        private const string Header = "{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Segoe UI;}{\\f1 Consolas;}}" +
+            "{\\colortbl ;\\red237\\green243\\blue252;\\red121\\green179\\blue255;\\red164\\green180\\blue202;\\red246\\green199\\blue119;\\red31\\green50\\blue77;}\\f0\\fs21\\cf1 ";
+
+        public static string ToRtf(string markdown)
+        {
+            var o = new StringBuilder(Header);
+            string[] lines = (markdown ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            bool code = false, blankPending = false;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i], trimmed = line.Trim();
+                if (trimmed.StartsWith("```", StringComparison.Ordinal)) { code = !code; blankPending = false; continue; }
+                if (code) { o.Append("\\pard\\li240\\sa0{\\f1\\fs19\\cf4\\highlight5 ").Append(Esc(line.Length == 0 ? " " : line)).Append("}\\par\n"); continue; }
+                if (trimmed.Length == 0) { blankPending = true; continue; }
+                if (blankPending) { o.Append("\\pard\\sa0\\fs8\\par\\fs21\n"); blankPending = false; }
+
+                int hashes = 0; while (hashes < trimmed.Length && trimmed[hashes] == '#') hashes++;
+                if (hashes > 0 && hashes <= 6 && trimmed.Length > hashes && trimmed[hashes] == ' ')
+                {
+                    int size = hashes == 1 ? 30 : hashes == 2 ? 26 : hashes == 3 ? 23 : 21;
+                    o.Append("\\pard\\sb140\\sa60{\\b\\fs").Append(size).Append("\\cf2 "); Inline(trimmed.Substring(hashes + 1).Trim(), o); o.Append("}\\par\n");
+                    continue;
+                }
+                if (IsRule(trimmed)) { o.Append("\\pard\\sb60\\sa60{\\cf3 ").Append("\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?\\u9472?}\\par\n"); continue; }
+                if (trimmed.StartsWith("|", StringComparison.Ordinal) && trimmed.EndsWith("|", StringComparison.Ordinal))
+                {
+                    var rows = new List<string[]>();
+                    int j = i;
+                    for (; j < lines.Length; j++)
+                    {
+                        string t = lines[j].Trim();
+                        if (!(t.StartsWith("|", StringComparison.Ordinal) && t.EndsWith("|", StringComparison.Ordinal))) break;
+                        string[] cells = t.Substring(1, t.Length - 2).Split('|');
+                        bool separator = true;
+                        for (int c = 0; c < cells.Length; c++) { cells[c] = Plain(cells[c].Trim()); if (cells[c].Replace("-", "").Replace(":", "").Trim().Length > 0) separator = false; }
+                        if (!separator) rows.Add(cells);
+                    }
+                    i = j - 1;
+                    var widths = new List<int>();
+                    foreach (string[] r in rows) for (int c = 0; c < r.Length; c++) { if (widths.Count <= c) widths.Add(0); widths[c] = Math.Max(widths[c], r[c].Length); }
+                    for (int r = 0; r < rows.Count; r++)
+                    {
+                        var rowText = new StringBuilder();
+                        for (int c = 0; c < rows[r].Length; c++) { if (c > 0) rowText.Append("  |  "); rowText.Append(rows[r][c].PadRight(widths[c])); }
+                        o.Append("\\pard\\li120\\sa0{\\f1\\fs19").Append(r == 0 ? "\\b" : "").Append(" ").Append(Esc(rowText.ToString())).Append("}\\par\n");
+                        if (r == 0 && rows.Count > 1) o.Append("\\pard\\li120\\sa0{\\f1\\fs12\\cf3 ").Append(Esc(new string('-', Math.Min(110, rowText.Length)))).Append("}\\par\n");
+                    }
+                    o.Append("\\pard\\sa60\\par\n");
+                    continue;
+                }
+                int indent = 0; while (indent < line.Length && line[indent] == ' ') indent++;
+                int level = Math.Min(3, indent / 2);
+                if (trimmed.Length > 2 && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') && trimmed[1] == ' ')
+                {
+                    int x = 380 + level * 360;
+                    o.Append("\\pard\\tx").Append(x).Append("\\li").Append(x).Append("\\fi-260\\sa30\\u8226?\\tab "); Inline(trimmed.Substring(2).Trim(), o); o.Append("\\par\n");
+                    continue;
+                }
+                int digits = 0; while (digits < trimmed.Length && char.IsDigit(trimmed[digits])) digits++;
+                if (digits > 0 && digits < 4 && trimmed.Length > digits + 1 && (trimmed[digits] == '.' || trimmed[digits] == ')') && trimmed[digits + 1] == ' ')
+                {
+                    int x = 440 + level * 360;
+                    o.Append("\\pard\\tx").Append(x).Append("\\li").Append(x).Append("\\fi-340\\sa30 ").Append(Esc(trimmed.Substring(0, digits + 1))).Append("\\tab "); Inline(trimmed.Substring(digits + 2).Trim(), o); o.Append("\\par\n");
+                    continue;
+                }
+                if (trimmed[0] == '>')
+                {
+                    o.Append("\\pard\\li360\\sa30{\\i\\cf3 "); Inline(trimmed.Substring(1).Trim(), o); o.Append("}\\par\n");
+                    continue;
+                }
+                o.Append("\\pard\\sa60 "); Inline(trimmed, o); o.Append("\\par\n");
+            }
+            return o.Append("}").ToString();
+        }
+
+        private static bool IsRule(string t)
+        {
+            if (t.Length < 3) return false;
+            char c = t[0]; if (c != '-' && c != '*' && c != '_') return false;
+            foreach (char x in t) if (x != c && x != ' ') return false;
+            return true;
+        }
+
+        /// <summary>Text with Markdown marks removed (used for table cells).</summary>
+        private static string Plain(string s)
+        {
+            return s.Replace("**", "").Replace("__", "").Replace("`", "");
+        }
+
+        private static string Esc(string s)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in s)
+            {
+                if (c == '\\' || c == '{' || c == '}') sb.Append('\\').Append(c);
+                else if (c == '\t') sb.Append("\\tab ");
+                else if (c < ' ') { }
+                else if (c > 126) sb.Append("\\u").Append((short)c).Append('?');
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private static void Inline(string s, StringBuilder o)
+        {
+            int i = 0;
+            while (i < s.Length)
+            {
+                char c = s[i];
+                if (c == '*' && i + 1 < s.Length && s[i + 1] == '*')
+                {
+                    int end = s.IndexOf("**", i + 2, StringComparison.Ordinal);
+                    if (end > i + 2) { o.Append("{\\b "); Inline(s.Substring(i + 2, end - i - 2), o); o.Append("}"); i = end + 2; continue; }
+                }
+                if (c == '_' && i + 1 < s.Length && s[i + 1] == '_' && (i == 0 || !char.IsLetterOrDigit(s[i - 1])))
+                {
+                    int end = s.IndexOf("__", i + 2, StringComparison.Ordinal);
+                    if (end > i + 2) { o.Append("{\\b "); Inline(s.Substring(i + 2, end - i - 2), o); o.Append("}"); i = end + 2; continue; }
+                }
+                if (c == '`')
+                {
+                    int end = s.IndexOf('`', i + 1);
+                    if (end > i + 1) { o.Append("{\\f1\\fs19\\cf4 ").Append(Esc(s.Substring(i + 1, end - i - 1))).Append("}"); i = end + 1; continue; }
+                }
+                if ((c == '*' || c == '_') && i + 1 < s.Length && s[i + 1] != ' ' && s[i + 1] != c && (c == '*' || i == 0 || !char.IsLetterOrDigit(s[i - 1])))
+                {
+                    int end = s.IndexOf(c, i + 1);
+                    if (end > i + 1 && s[end - 1] != ' ' && (c == '*' || end + 1 >= s.Length || !char.IsLetterOrDigit(s[end + 1])))
+                    { o.Append("{\\i "); Inline(s.Substring(i + 1, end - i - 1), o); o.Append("}"); i = end + 1; continue; }
+                }
+                if (c == '[')
+                {
+                    int close = s.IndexOf("](", i + 1, StringComparison.Ordinal);
+                    int paren = close < 0 ? -1 : s.IndexOf(')', close + 2);
+                    if (close > i && paren > close)
+                    {
+                        string label = s.Substring(i + 1, close - i - 1), url = s.Substring(close + 2, paren - close - 2);
+                        Inline(label, o); if (url.Length > 0) o.Append("{\\cf3  (").Append(Esc(url)).Append(")}");
+                        i = paren + 1; continue;
+                    }
+                }
+                o.Append(Esc(c.ToString())); i++;
+            }
+        }
+    }
+
     // ---- session state and the tab inside the viewer (WinForms)
     /// <summary>Kept in memory for as long as the viewer is open. Never written to disk.</summary>
     internal static class GenAiSession
@@ -985,7 +1134,8 @@ namespace BH.Native
             Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202), Accent = Color.FromArgb(121, 179, 255), Danger = Color.FromArgb(255, 135, 150);
         private List<Dictionary<string, object>> edges = new List<Dictionary<string, object>>();
         private string source = "";
-        private readonly TextBox key, address, preview, answer;
+        private readonly TextBox key, address, preview;
+        private readonly RichTextBox answer;
         private readonly ComboBox model, task;
         private readonly CheckBox hide, showSent;
         private readonly Label context, status, keyState;
@@ -1051,7 +1201,7 @@ namespace BH.Native
 
             // Row 3: answer on top, optional preview of exactly what is sent below
             split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 8, BackColor = Line };
-            answer = new TextBox { Name = "GenAiAnswer", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10.5f) };
+            answer = new RichTextBox { Name = "GenAiAnswer", Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.Vertical, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10.5f), DetectUrls = false, TabStop = true };
             split.Panel1.Controls.Add(answer);
             preview = new TextBox { Name = "GenAiPreview", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Muted, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f) };
             split.Panel2.Controls.Add(preview);
@@ -1102,7 +1252,7 @@ namespace BH.Native
         public void LoadEdges(List<Dictionary<string, object>> items, string what)
         {
             edges = items ?? new List<Dictionary<string, object>>(); source = what ?? "";
-            rawAnswer = ""; answer.Text = "";
+            rawAnswer = ""; answer.Clear();
             Rebuild();
             SetStatus(prompt.Steps + " relationships ready. " + (GenAiSession.Key.Length > 0 ? "Press Send." : "Enter your API key, then press Send."), false);
         }
@@ -1150,7 +1300,7 @@ namespace BH.Native
             if (chosen.Length == 0) { SetStatus("Choose a model.", true); return; }
             if (prompt.Steps == 0) { SetStatus("Nothing to explain yet. Open a path or select a relationship, then choose Ask GenAI.mil.", true); return; }
             if ((prompt.System.Length + prompt.User.Length) / 4 > 20000) { SetStatus("The question is too large for one request. Choose a shorter path.", true); return; }
-            rawAnswer = ""; answer.Text = ""; send.Enabled = false; cancel.Enabled = true; SetStatus("Sending to " + address.Text.Trim() + " ...", false);
+            rawAnswer = ""; answer.Clear(); send.Enabled = false; cancel.Enabled = true; SetStatus("Sending to " + address.Text.Trim() + " ...", false);
             client = new GenAiClient(address.Text, secret);
             var current = client; var currentPrompt = prompt; string system = prompt.System, user = prompt.User;
             worker = new Thread(delegate()
@@ -1159,8 +1309,8 @@ namespace BH.Native
                 {
                     Post(delegate
                     {
-                        rawAnswer += piece; answer.Text = Crlf(currentPrompt.Restore(rawAnswer));
-                        answer.SelectionStart = answer.Text.Length; answer.ScrollToCaret(); SetStatus("Receiving...", false);
+                        rawAnswer += piece; ShowAnswer(currentPrompt.Restore(rawAnswer));
+                        SetStatus("Receiving...", false);
                     });
                 });
                 Post(delegate
@@ -1173,13 +1323,18 @@ namespace BH.Native
                         return;
                     }
                     GenAiSession.Credits += GenAiModels.Credits(chosen, result.PromptTokens, result.CompletionTokens);
-                    answer.Text = Crlf(currentPrompt.Restore(result.Text));
+                    ShowAnswer(currentPrompt.Restore(result.Text));
                     SetStatus("Done. Tokens in " + result.PromptTokens + ", out " + result.CompletionTokens + ". Credits used in this session: " + GenAiSession.Credits + " of 2,000,000 per day (" + GenAiSession.Requests + " requests). Review before acting.", false);
                 });
             });
             worker.IsBackground = true; worker.Start();
         }
 
-        private static string Crlf(string text) { return (text ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"); }
+        private void ShowAnswer(string markdown)
+        {
+            try { answer.Rtf = GenAiMarkdown.ToRtf(markdown); }
+            catch (Exception) { answer.Text = (markdown ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"); }
+            answer.SelectionStart = answer.TextLength; answer.ScrollToCaret();
+        }
     }
 }

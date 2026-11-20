@@ -16,7 +16,7 @@ if (-not $Browser) {
     } catch { }
 }
 trap { if ($script:consoleHidden) { try { [TesseraConsole]::Show() } catch { }; Write-Host ('Tessera stopped: ' + $_.Exception.Message) -ForegroundColor Red; Read-Host 'Press Enter to close' }; break }
-if(-not $DataRoot){$DataRoot=Join-Path $PSScriptRoot 'BHData'}
+if(-not $DataRoot){$DataRoot=Join-Path $PSScriptRoot 'TesseraData'}
 function Get-BHLatestReport {
     param([Parameter(Mandatory)][string]$DataRoot)
     $candidates=[Collections.Generic.List[object]]::new()

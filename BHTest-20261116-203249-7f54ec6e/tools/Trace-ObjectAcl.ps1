@@ -11,7 +11,7 @@ ACL edges stored in graph.sqlite for that object and flags any whose source
 SID is NOT a trustee in the live DACL.
 
 .EXAMPLE
-.\tools\Trace-ObjectAcl.ps1 -Server dc01.corp.local -Identity jsmith -IndexPath .\BHData\reports\latest\graph.sqlite
+.\tools\Trace-ObjectAcl.ps1 -Server dc01.corp.local -Identity jsmith -IndexPath .\TesseraData\reports\latest\graph.sqlite
 
 .EXAMPLE
 .\tools\Trace-ObjectAcl.ps1 -Identity 'S-1-5-21-1-2-3-1105' -DescriptorHex 0100048014...
@@ -32,7 +32,7 @@ if ($IndexPath) {
     # Check before any LDAP work. Resolve against PowerShell's current location: SQLite itself
     # resolves relative paths from the process working directory, which can differ.
     if (-not (Test-Path -LiteralPath $IndexPath -PathType Leaf)) {
-        throw "Index file not found: '$IndexPath'. Pass the full path to the report's graph.sqlite, for example C:\path\to\BHData\reports\<report name>\graph.sqlite."
+        throw "Index file not found: '$IndexPath'. Pass the full path to the report's graph.sqlite, for example C:\path\to\TesseraData\reports\<report name>\graph.sqlite."
     }
     $IndexPath = (Resolve-Path -LiteralPath $IndexPath).ProviderPath
 }

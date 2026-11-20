@@ -1,7 +1,7 @@
 # Collects an Entra ID tenant (same parameters as Start-BHEntraCollection). Examples:
 #   .\tools\Collect-Entra.ps1 -TenantId <guid> -ClientId <guid> -CertificateThumbprint <thumbprint>
 #   .\tools\Collect-Entra.ps1 -TenantId <guid> -DeviceCode            (sign in as a Global Reader)
-#   .\tools\Collect-Entra.ps1 -TenantId <guid> -ResumeDirectory .\BHData\entra-scans\entra-xxxx   (continue a stopped run)
+#   .\tools\Collect-Entra.ps1 -TenantId <guid> -ResumeDirectory .\TesseraData\entra-scans\entra-xxxx   (continue a stopped run)
 # Defaults to USGovDoD. Add -Cloud USGov for GCC High or -Cloud Global for commercial.
 [CmdletBinding()]
 param(
@@ -14,7 +14,7 @@ param(
     [securestring]$ClientSecret,
     [switch]$DeviceCode,
     [securestring]$AccessToken,
-    [string]$OutputRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) 'BHData\entra-scans'),
+    [string]$OutputRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) 'TesseraData\entra-scans'),
     [string]$ResumeDirectory,
     [ValidateRange(1, 64)][int]$Threads = 16,
     [ValidateSet('All', 'RoleAssignable', 'None')][string]$Members = 'All',

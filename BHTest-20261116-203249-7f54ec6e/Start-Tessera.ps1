@@ -96,7 +96,7 @@ if ($PSBoundParameters.Count -eq 0) {
 }
 trap { if ($script:consoleHidden) { try { [TesseraConsole]::Show() } catch { }; Write-Host ('Tessera stopped: ' + $_.Exception.Message) -ForegroundColor Red; Read-Host 'Press Enter to close' }; break }
 if ($PSBoundParameters.Count -eq 0 -and [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { if ($PSVersionTable.PSEdition -eq 'Desktop') { $env:PSModulePath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules;$env:ProgramFiles\WindowsPowerShell\Modules" }; $hostExe = (Get-Process -Id $PID).Path; & $hostExe -NoProfile -STA -File $PSCommandPath; if ($LASTEXITCODE) { if ($script:consoleHidden) { try { [TesseraConsole]::Show() } catch { } }; Read-Host 'Press Enter to close' }; exit $LASTEXITCODE }
-if (-not $DataRoot) { $DataRoot = Join-Path $PSScriptRoot 'BHData' }
+if (-not $DataRoot) { $DataRoot = Join-Path $PSScriptRoot 'TesseraData' }
 $srcDir = Join-Path $PSScriptRoot 'src'
 . (Join-Path $srcDir 'BH.LatestReport.ps1')
 Import-Module (Join-Path $srcDir 'BH.Core.psm1') -Force -DisableNameChecking

@@ -7,7 +7,7 @@ param([string]$IndexPath,[switch]$Latest,[string]$DataRoot,
     [Parameter(ParameterSetName='Browser')][switch]$NoBrowser,
     [Parameter(ParameterSetName='Browser')][switch]$NoWindow)
 $ErrorActionPreference='Stop'
-if(-not $DataRoot){$DataRoot=Join-Path $PSScriptRoot 'BHData'}
+if(-not $DataRoot){$DataRoot=Join-Path $PSScriptRoot 'TesseraData'}
 /*__LATEST_REPORT__*/
 if($Help -and ($Latest -or $IndexPath)){throw 'Help does not use an index. Choose Help or a snapshot.'}
 if($Latest){

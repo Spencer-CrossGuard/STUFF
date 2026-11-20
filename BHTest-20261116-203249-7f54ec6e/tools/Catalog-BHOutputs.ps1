@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 [CmdletBinding()]
-param([string]$Root=(Join-Path (Split-Path $PSScriptRoot -Parent) 'BHData'))
+param([string]$Root=(Join-Path (Split-Path $PSScriptRoot -Parent) 'TesseraData'))
 $ErrorActionPreference='Stop'
 $rootDirectory=[IO.Path]::GetFullPath($Root)
 New-Item -ItemType Directory -Path $rootDirectory -Force|Out-Null

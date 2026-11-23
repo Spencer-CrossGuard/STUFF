@@ -4803,6 +4803,31 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             "- <glossary>: what each EDGE_TYPE means in this tool, its usual impact and its usual fix. Prefer it over your general knowledge where they differ.\n" +
             "- <limits>: what is NOT included (raw evidence, permission masks, inheritance, anything off screen). Relationships are recorded observations, not proof of effective access.\n" +
             "- <task>: which sections to produce.\n\n" +
+            "# RELATIONSHIP REFERENCE (general meaning of each EDGE_TYPE; the <glossary> block below each question adds this tool's own details and overrides this)\n" +
+            "- MemberOf: SOURCE is a member of group TARGET and inherits what TARGET can do.\n" +
+            "- Owns: SOURCE owns TARGET and can change TARGET's permissions.\n" +
+            "- GenericAll: full control of TARGET (reset its password, change its membership, write any attribute, change its permissions).\n" +
+            "- GenericWrite: can write most attributes of TARGET (for example set an SPN or a logon script, or change membership, depending on the type).\n" +
+            "- WriteDacl: can change TARGET's permissions, so can grant itself anything on TARGET.\n" +
+            "- WriteOwner: can take ownership of TARGET and then change its permissions.\n" +
+            "- AllExtendedRights: all extended rights on TARGET (for example reset a user's password, or read LAPS on a computer).\n" +
+            "- ForceChangePassword: can reset the password of user TARGET without knowing it.\n" +
+            "- AddMember: can add members to group TARGET. AddSelf: can add itself to group TARGET.\n" +
+            "- WriteSPN: can set service principal names on TARGET, which enables Kerberoasting of that account.\n" +
+            "- AddKeyCredentialLink: can write key credentials (shadow credentials) on TARGET and then authenticate as it.\n" +
+            "- WriteAccountRestrictions: can edit delegation-related account restrictions on TARGET.\n" +
+            "- AllowedToAct: TARGET (a computer) allows SOURCE to act on behalf of users (resource-based delegation). AddAllowedToAct: SOURCE can write that setting on TARGET.\n" +
+            "- AllowedToDelegate: constrained delegation; SOURCE can impersonate users to services on TARGET.\n" +
+            "- ReadLAPSPassword: can read the local administrator password of computer TARGET.\n" +
+            "- ReadGMSAPassword: can read the password of group managed service account TARGET. DumpSMSAPassword: the same idea for a standalone managed service account.\n" +
+            "- DCSync: has replication rights on domain TARGET, so can obtain any account's password hashes.\n" +
+            "- HasSIDHistory: SOURCE carries TARGET's SID in its SID history and so has TARGET's rights.\n" +
+            "- AdminTo: SOURCE is a local administrator on computer TARGET. CanRDP: can log on by Remote Desktop. CanPSRemote: can use PowerShell remoting. ExecuteDCOM: can run code through DCOM. SQLAdmin: has administrative rights on a SQL Server on TARGET.\n" +
+            "- HasSession: an exception to the direction rule. SOURCE is a computer and TARGET is a user who was logged on there; whoever controls the computer can steal that user's credentials.\n" +
+            "- WriteGPLink: can link Group Policy Objects to TARGET (an OU, site or domain). GPOAppliesTo: GPO SOURCE applies to computers in scope TARGET (a candidate, not verified).\n" +
+            "- ADCSESC1: SOURCE may enroll in a certificate template that allows requesting a certificate as another identity (certificate-based escalation).\n" +
+            "- Contains: the parent object contains TARGET in the directory tree. GPLink: a GPO is linked to TARGET. TrustRelationship: a trust between domains.\n" +
+            "\n" +
             "# HOW TO THINK (do this silently, then write the answer; do not show this working)\n" +
             "For each line decide who holds what over what, and whether the control is direct or inherited through membership. Find the most privileged object reached. Tier 0 means domain controllers, Domain Admins and equivalent groups, the domain object, AdminSDHolder, krbtgt, and certificate authorities. " +
             "Then find the single relationship whose removal breaks the most routes, and the safest change that removes it.\n\n" +
@@ -4838,7 +4863,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public int Steps;
         private readonly Dictionary<string, string> tokenToName = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        /// <summary>The "what you receive" section of the built-in prompt, for pasting into a custom prompt.</summary>
+        /// <summary>The "what you receive" and relationship reference sections of the built-in prompt, for pasting into a custom prompt.</summary>
         public static string DataDictionary()
         {
             int a = SystemText.IndexOf("# WHAT YOU RECEIVE", StringComparison.Ordinal), b = SystemText.IndexOf("# HOW TO THINK", StringComparison.Ordinal);
@@ -4890,6 +4915,12 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         public static GenAiPrompt Build(List<Dictionary<string, object>> edges, bool hideNames, int task, Func<string, string[]> glossary, List<GenAiRole> roles)
         {
+            return Build(edges, hideNames, task, glossary, roles, null);
+        }
+
+        /// <param name="contextGuide">Optional: given an edge type and the target's kind, the viewer's own guidance for that combination ({ meaning, prerequisites, change, verify, impact }).</param>
+        public static GenAiPrompt Build(List<Dictionary<string, object>> edges, bool hideNames, int task, Func<string, string[]> glossary, List<GenAiRole> roles, Func<string, string, string[]> contextGuide)
+        {
             var p = new GenAiPrompt();
             var roleOf = new Dictionary<string, GenAiRole>(StringComparer.OrdinalIgnoreCase);
             var roleOrder = new List<string>();
@@ -4917,6 +4948,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 return token;
             };
             var types = new List<string>();
+            var typeKinds = new List<string[]>();
             var sIds = new List<string>(); var tIds = new List<string>();
             var lines = new StringBuilder();
             int count = 0;
@@ -4928,6 +4960,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 string type = Get(edge, "ty");
                 if (!types.Contains(type)) types.Add(type);
                 string sk = KindOfSide(edge, "s"), tk = KindOfSide(edge, "t");
+                bool pairSeen = false; foreach (string[] pair in typeKinds) if (pair[0] == type && pair[1] == tk) pairSeen = true;
+                if (!pairSeen) typeKinds.Add(new string[] { type, tk });
                 sIds.Add(Get(edge, "s")); tIds.Add(Get(edge, "t"));
                 string sLabel = label(edge, "s"), tLabel = label(edge, "t");
                 GenAiRole sRole, tRole; roleOf.TryGetValue(Get(edge, "s"), out sRole); roleOf.TryGetValue(Get(edge, "t"), out tRole);
@@ -4941,6 +4975,14 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 string[] h = glossary == null ? null : glossary(type);
                 if (h == null || h.Length < 7) { glossaryText.Append("- ").Append(type).Append(": (no description available in this tool)\n"); continue; }
                 glossaryText.Append("- ").Append(type).Append(": ").Append(Clip(h[1], 260)).Append(" Impact: ").Append(Clip(h[3], 260)).Append(" Usual fix: ").Append(Clip(h[6], 260)).Append('\n');
+                if (contextGuide != null)
+                    foreach (string[] pair in typeKinds)
+                    {
+                        if (pair[0] != type || pair[1].Length == 0) continue;
+                        string[] c = contextGuide(type, pair[1]);
+                        if (c == null || c.Length < 5) continue;
+                        glossaryText.Append("    When the target is a ").Append(KindWord(pair[1]).ToLowerInvariant()).Append(": ").Append(Clip(c[0], 240)).Append(" Check first: ").Append(Clip(c[1], 200)).Append(" Effect of changing it: ").Append(Clip(c[4], 200)).Append('\n');
+                    }
             }
             // What the administrator says these objects are. With names hidden only the token and the role are sent.
             var roleText = new StringBuilder();
@@ -5722,7 +5764,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         {
             GenAiRoles.EnsureLoaded();
             RenderSubject();
-            prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; }, GenAiRoles.Items);
+            prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; }, GenAiRoles.Items,
+                delegate(string type, string kind) { string[] c; return DesktopViewer.ContextGuide.TryGetValue(type + "|" + kind, out c) ? c : null; });
             preview.Text = "SYSTEM INSTRUCTIONS\r\n" + prompt.System.Replace("\n", "\r\n") + "\r\n\r\nQUESTION\r\n" + prompt.User.Replace("\n", "\r\n");
             string custom = GenAiPrompts.Resolve(GenAiSession.PromptName);
             if (custom != null) prompt.System = custom;

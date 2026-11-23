@@ -5,12 +5,12 @@ Everything below is visible in the viewer under **Show what will be sent**. Noth
 ## What is sent
 One request to `POST {address}/v1/chat/completions` with two messages (more in a follow-up conversation):
 
-1. **System message** (the built-in text, about 1,350 tokens, unless you choose a custom prompt on the GenAI tab): role, a data dictionary (how to read the data), how to reason, rules, output format, and a format example.
+1. **System message** (the built-in text, about 2,100 tokens, including a short reference for all 30 relationship types the tool follows, unless you choose a custom prompt on the GenAI tab): role, a data dictionary (how to read the data), how to reason, rules, output format, and a format example.
 2. **User message** (changes per question), made of tagged blocks:
    * `<scope>`: whether the list is one relationship, one chain, or a set of alternative routes to the same target; whether it was cut short (limit 60 relationships); whether names are hidden.
    * `<relationships>`: numbered lines `N. SOURCE (kind, role: ROLE)  --[EDGE_TYPE]-->  TARGET (kind, role: ROLE)`. The arrow points from the object that holds the right to the object it applies to. With Hide object names on, SOURCE and TARGET are tokens (USER-1, GROUP-2, COMPUTER-3).
    * `<roles>`: from your Device roles naming rules (role names and notes only; the token when names are hidden).
-   * `<glossary>`: what each relationship type in the list means in this tool, its usual impact and usual fix (from the viewer's built-in guidance).
+   * `<glossary>`: for each relationship type in the list, what it means in this tool, its usual impact and usual fix (from the viewer's built-in guidance), plus the viewer's guidance for that type against the kind of object it targets (what to check first, effect of changing it).
    * `<limits>`: what is not included (raw evidence, permission masks, inheritance, SIDs, distinguished names).
    * `<task>`: which sections to produce.
 

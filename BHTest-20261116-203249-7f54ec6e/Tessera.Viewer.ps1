@@ -4744,6 +4744,27 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             return Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tessera"), "device-roles.tsv");
         }
 
+        /// <summary>Splits one line of a roles file. Tab separated; a line with no tab but commas is read as CSV (Excel). Surrounding quotes are removed.</summary>
+        public static string[] SplitLine(string line)
+        {
+            string[] f;
+            if (line.IndexOf('\t') >= 0) f = line.Split('\t');
+            else if (line.IndexOf(',') >= 0)
+            {
+                var parts = new List<string>(); var cur = new StringBuilder(); bool quoted = false;
+                foreach (char c in line)
+                {
+                    if (c == '"') quoted = !quoted;
+                    else if (c == ',' && !quoted) { parts.Add(cur.ToString()); cur.Length = 0; }
+                    else cur.Append(c);
+                }
+                parts.Add(cur.ToString()); f = parts.ToArray();
+            }
+            else f = new string[] { line };
+            for (int i = 0; i < f.Length; i++) f[i] = f[i].Trim().Trim('"').Trim();
+            return f;
+        }
+
         public static void EnsureLoaded()
         {
             if (loaded) return;
@@ -4753,10 +4774,11 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 string path = FilePath();
                 if (!File.Exists(path)) return;
                 var list = new List<GenAiRole>();
-                foreach (string line in File.ReadAllLines(path, Encoding.UTF8))
+                foreach (string line in File.ReadAllLines(path))
                 {
-                    string[] f = line.Split('\t');
+                    string[] f = SplitLine(line);
                     if (f.Length < 2 || f[0].Trim().Length == 0 || f[1].Trim().Length == 0) continue;
+                    if (string.Equals(f[0], "Pattern", StringComparison.OrdinalIgnoreCase) && string.Equals(f[1], "Role", StringComparison.OrdinalIgnoreCase)) continue;
                     list.Add(new GenAiRole { Pattern = f[0].Trim(), Role = f[1].Trim(), Scope = f.Length > 2 && f[2].Trim().Length > 0 ? f[2].Trim() : "Computers", Note = f.Length > 3 ? f[3].Trim() : "" });
                 }
                 Items = list;
@@ -5002,6 +5024,13 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 : "a set of " + count + " relationships that do not form one chain";
             // task: 0 = both, 1 = explain only, 2 = recommend only
             p.RolesMatched = roleOrder.Count;
+            if (roles != null && roles.Count > 0 && roleOrder.Count > 0)
+            {
+                var without = new List<string>();
+                foreach (string id in new List<string>(tokenByIdForRoles.Keys))
+                    if (!roleOf.ContainsKey(id)) { string t2; without.Add(tokenOf.TryGetValue(id, out t2) ? t2 : Safe(tokenByIdForRoles[id], 120)); }
+                if (without.Count > 0) roleText.Append("- No role rule matched: ").Append(string.Join(", ", without.ToArray())).Append(" (type unknown)\n");
+            }
             string want = task == 1 ? "Explain this. Produce SUMMARY, WHY IT MATTERS, STEP BY STEP and CONFIDENCE AND LIMITS only."
                 : task == 2 ? "Recommend how to fix this. Produce SUMMARY, RECOMMENDED FIXES and CONFIDENCE AND LIMITS only."
                 : "Explain this, then recommend how to fix it. Produce all sections.";
@@ -5344,6 +5373,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81), Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202);
         private readonly DataGridView grid;
         private readonly Label message;
+        private TextBox testName;
+        private ComboBox testKind;
 
         public GenAiRolesDialog()
         {
@@ -5375,7 +5406,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             grid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
             foreach (GenAiRole r in GenAiRoles.Items) grid.Rows.Add(r.Pattern, r.Role, r.Scope, r.Note);
 
-            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 52, BackColor = PanelColor, Padding = new Padding(6, 8, 6, 4), FlowDirection = FlowDirection.LeftToRight };
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 98, BackColor = PanelColor, Padding = new Padding(6, 8, 6, 4), FlowDirection = FlowDirection.LeftToRight };
             Button save = Flat("Save"), cancel = Flat("Cancel"), examples = Flat("Add examples"), import = Flat("Import..."), export = Flat("Export...");
             import.Click += delegate { ImportRoles(); };
             export.Click += delegate { ExportRoles(); };
@@ -5391,7 +5422,16 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 AddExample("adm-*", "Privileged admin account", "Users", "");
             };
             message = new Label { AutoSize = true, ForeColor = Muted, Margin = new Padding(12, 9, 0, 0) };
-            bottom.Controls.Add(save); bottom.Controls.Add(cancel); bottom.Controls.Add(examples); bottom.Controls.Add(import); bottom.Controls.Add(export); bottom.Controls.Add(message);
+            bottom.Controls.Add(save); bottom.Controls.Add(cancel); bottom.Controls.Add(examples); bottom.Controls.Add(import); bottom.Controls.Add(export);
+            var testLabel = new Label { Text = "Check a name:", AutoSize = true, ForeColor = Muted, Margin = new Padding(14, 9, 2, 0) };
+            testName = new TextBox { Width = 210, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(4, 6, 4, 4) };
+            testKind = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Bg, ForeColor = Ink, Width = 120, Margin = new Padding(4, 6, 4, 4) };
+            testKind.Items.Add("Computers"); testKind.Items.Add("Users"); testKind.Items.Add("Groups"); testKind.Items.Add("Unknown kind"); testKind.SelectedIndex = 0;
+            Button check = Flat("Check");
+            check.Click += delegate { CheckName(); };
+            testName.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { CheckName(); e.SuppressKeyPress = true; } };
+            bottom.Controls.Add(testLabel); bottom.Controls.Add(testName); bottom.Controls.Add(testKind); bottom.Controls.Add(check);
+            bottom.Controls.Add(message);
             Controls.Add(grid); Controls.Add(bottom); Controls.Add(intro);
             AcceptButton = null;
         }
@@ -5403,6 +5443,31 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
 
         private void AddExample(string pattern, string role, string scope, string note) { grid.Rows.Add(pattern, role, scope, note); }
+
+        private List<GenAiRole> RulesInGrid()
+        {
+            var list = new List<GenAiRole>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                string pattern = Field(row.Cells["Pattern"].Value), role = Field(row.Cells["Role"].Value), scope = Field(row.Cells["Scope"].Value);
+                if (pattern.Length == 0 || role.Length == 0) continue;
+                list.Add(new GenAiRole { Pattern = pattern, Role = role, Scope = scope.Length == 0 ? "Computers" : scope, Note = Field(row.Cells["Note"].Value) });
+            }
+            return list;
+        }
+
+        /// <summary>Shows which rule a name would hit, using the rules as they are in the grid right now.</summary>
+        private void CheckName()
+        {
+            string name = testName.Text.Trim();
+            if (name.Length == 0) { message.Text = "Type an object name to check."; return; }
+            string kind = testKind.SelectedIndex == 0 ? "computers" : testKind.SelectedIndex == 1 ? "users" : testKind.SelectedIndex == 2 ? "groups" : "";
+            var rules = RulesInGrid();
+            for (int i = 0; i < rules.Count; i++)
+                if (rules[i].Matches(name, kind)) { message.Text = "'" + name + "' matches rule " + (i + 1) + " of " + rules.Count + ": " + rules[i].Pattern + " = " + rules[i].Role + "."; return; }
+            message.Text = "No rule matches '" + name + "' (" + rules.Count + " rule(s) checked, " + (kind.Length > 0 ? "kind " + kind : "kind unknown") + "). Check the pattern, the Applies to column, and that the name is the short name.";
+        }
 
         private static string Field(object value) { return (Convert.ToString(value) ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim(); }
 
@@ -5438,9 +5503,9 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                     var existing = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                     foreach (DataGridViewRow row in grid.Rows) if (!row.IsNewRow) existing[Field(row.Cells["Pattern"].Value) + "\t" + Field(row.Cells["Role"].Value)] = true;
                     int added = 0, skipped = 0;
-                    foreach (string line in File.ReadAllLines(dialog.FileName, Encoding.UTF8))
+                    foreach (string line in File.ReadAllLines(dialog.FileName))
                     {
-                        string[] f = line.Split('\t');
+                        string[] f = GenAiRoles.SplitLine(line);
                         if (f.Length < 2 || f[0].Trim().Length == 0 || f[1].Trim().Length == 0) continue;
                         if (string.Equals(f[0].Trim(), "Pattern", StringComparison.OrdinalIgnoreCase) && string.Equals(f[1].Trim(), "Role", StringComparison.OrdinalIgnoreCase)) continue;
                         string scope = f.Length > 2 ? f[2].Trim() : "";
@@ -5794,7 +5859,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private static string Describe(Dictionary<string, object> edge, string side)
         {
             string name = NameOf(edge, side), kind = KindOf(edge, side), role = RoleOf(name, kind);
-            string extra = kind.Length > 0 || role.Length > 0 ? " (" + kind + (kind.Length > 0 && role.Length > 0 ? ", " : "") + (role.Length > 0 ? "role: " + role : "") + ")" : "";
+            string roleText = role.Length > 0 ? "role: " + role : (GenAiRoles.Items.Count > 0 ? "no role rule matched" : "");
+            string extra = kind.Length > 0 || roleText.Length > 0 ? " (" + kind + (kind.Length > 0 && roleText.Length > 0 ? ", " : "") + roleText + ")" : "";
             return name + extra;
         }
 

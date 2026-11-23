@@ -4541,6 +4541,66 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
     }
 
+    /// <summary>Custom system prompts, one text file each in %LOCALAPPDATA%\\Tessera\\prompts. The built-in prompt is always available.</summary>
+    internal static class GenAiPrompts
+    {
+        public const string BuiltInName = "Built-in (Tessera default)";
+
+        public static string Folder() { return Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tessera"), "prompts"); }
+
+        public static string CleanName(string name)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in (name ?? "").Trim()) if ("\\/:*?\"<>|".IndexOf(c) < 0 && c >= ' ') sb.Append(c);
+            string result = sb.ToString().Trim().TrimEnd('.');
+            return result.Length > 60 ? result.Substring(0, 60).Trim() : result;
+        }
+
+        private static string FileFor(string name) { return Path.Combine(Folder(), CleanName(name) + ".txt"); }
+
+        public static List<string> Names()
+        {
+            var names = new List<string>();
+            try
+            {
+                if (Directory.Exists(Folder()))
+                    foreach (string file in Directory.GetFiles(Folder(), "*.txt")) names.Add(Path.GetFileNameWithoutExtension(file));
+            }
+            catch (Exception) { }
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names;
+        }
+
+        public static string Read(string name)
+        {
+            try { string file = FileFor(name); return CleanName(name).Length > 0 && File.Exists(file) ? File.ReadAllText(file, Encoding.UTF8) : null; }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>The text to use as the system message, or null to use the built-in prompt.</summary>
+        public static string Resolve(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name == BuiltInName) return null;
+            string text = Read(name);
+            return text == null || text.Trim().Length == 0 ? null : text.Replace("\r\n", "\n").Trim();
+        }
+
+        public static string Write(string name, string text)
+        {
+            try
+            {
+                string clean = CleanName(name);
+                if (clean.Length == 0 || clean == BuiltInName) return "Give the prompt a name (not the built-in name).";
+                Directory.CreateDirectory(Folder());
+                File.WriteAllText(FileFor(clean), (text ?? "").Replace("\r\n", "\n"), new UTF8Encoding(false));
+                return null;
+            }
+            catch (Exception ex) { return "The prompt could not be saved: " + ex.Message; }
+        }
+
+        public static void Delete(string name) { try { string f = FileFor(name); if (File.Exists(f)) File.Delete(f); } catch (Exception) { } }
+    }
+
     /// <summary>One naming rule: objects whose name matches the pattern have this role (for example *-DC-* is a Domain Controller).</summary>
     internal sealed class GenAiRole
     {
@@ -4699,6 +4759,13 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public bool Truncated;
         public int Steps;
         private readonly Dictionary<string, string> tokenToName = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>The "what you receive" section of the built-in prompt, for pasting into a custom prompt.</summary>
+        public static string DataDictionary()
+        {
+            int a = SystemText.IndexOf("# WHAT YOU RECEIVE", StringComparison.Ordinal), b = SystemText.IndexOf("# HOW TO THINK", StringComparison.Ordinal);
+            return a >= 0 && b > a ? SystemText.Substring(a, b - a).TrimEnd() : "";
+        }
 
         public static readonly string[] Tasks = new string[] { "Explain the path and recommend fixes", "Explain the path only", "Recommend fixes only" };
 
@@ -5103,6 +5170,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public static string Model = "gemini-3.8-flash";
         public static bool HideNames = true;
         public static int Task;
+        public static string PromptName = "";   // empty means the built-in prompt
         public static long Credits;
         public static int Requests;
         public static void Forget() { Key = ""; }
@@ -5146,7 +5214,9 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             foreach (GenAiRole r in GenAiRoles.Items) grid.Rows.Add(r.Pattern, r.Role, r.Scope, r.Note);
 
             var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 52, BackColor = PanelColor, Padding = new Padding(6, 8, 6, 4), FlowDirection = FlowDirection.LeftToRight };
-            Button save = Flat("Save"), cancel = Flat("Cancel"), examples = Flat("Add examples");
+            Button save = Flat("Save"), cancel = Flat("Cancel"), examples = Flat("Add examples"), import = Flat("Import..."), export = Flat("Export...");
+            import.Click += delegate { ImportRoles(); };
+            export.Click += delegate { ExportRoles(); };
             save.Click += delegate { Save(); };
             cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
             examples.Click += delegate
@@ -5159,7 +5229,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 AddExample("adm-*", "Privileged admin account", "Users", "");
             };
             message = new Label { AutoSize = true, ForeColor = Muted, Margin = new Padding(12, 9, 0, 0) };
-            bottom.Controls.Add(save); bottom.Controls.Add(cancel); bottom.Controls.Add(examples); bottom.Controls.Add(message);
+            bottom.Controls.Add(save); bottom.Controls.Add(cancel); bottom.Controls.Add(examples); bottom.Controls.Add(import); bottom.Controls.Add(export); bottom.Controls.Add(message);
             Controls.Add(grid); Controls.Add(bottom); Controls.Add(intro);
             AcceptButton = null;
         }
@@ -5171,6 +5241,59 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
 
         private void AddExample(string pattern, string role, string scope, string note) { grid.Rows.Add(pattern, role, scope, note); }
+
+        private static string Field(object value) { return (Convert.ToString(value) ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim(); }
+
+        private void ExportRoles()
+        {
+            using (var dialog = new SaveFileDialog { Title = "Export device roles", Filter = "Tab-separated text (*.tsv)|*.tsv|All files (*.*)|*.*", FileName = "tessera-device-roles.tsv" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    var sb = new StringBuilder("Pattern\tRole\tAppliesTo\tNote\r\n"); int count = 0;
+                    foreach (DataGridViewRow row in grid.Rows)
+                    {
+                        if (row.IsNewRow) continue;
+                        string pattern = Field(row.Cells["Pattern"].Value), role = Field(row.Cells["Role"].Value);
+                        if (pattern.Length == 0 && role.Length == 0) continue;
+                        sb.Append(pattern).Append('\t').Append(role).Append('\t').Append(Field(row.Cells["Scope"].Value)).Append('\t').Append(Field(row.Cells["Note"].Value)).Append("\r\n"); count++;
+                    }
+                    File.WriteAllText(dialog.FileName, sb.ToString(), new UTF8Encoding(true));
+                    message.Text = "Exported " + count + " rules to " + Path.GetFileName(dialog.FileName) + ".";
+                }
+                catch (Exception ex) { message.Text = "Export failed: " + ex.Message; }
+            }
+        }
+
+        private void ImportRoles()
+        {
+            using (var dialog = new OpenFileDialog { Title = "Import device roles", Filter = "Tab-separated text (*.tsv;*.txt)|*.tsv;*.txt|All files (*.*)|*.*" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    var existing = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                    foreach (DataGridViewRow row in grid.Rows) if (!row.IsNewRow) existing[Field(row.Cells["Pattern"].Value) + "\t" + Field(row.Cells["Role"].Value)] = true;
+                    int added = 0, skipped = 0;
+                    foreach (string line in File.ReadAllLines(dialog.FileName, Encoding.UTF8))
+                    {
+                        string[] f = line.Split('\t');
+                        if (f.Length < 2 || f[0].Trim().Length == 0 || f[1].Trim().Length == 0) continue;
+                        if (string.Equals(f[0].Trim(), "Pattern", StringComparison.OrdinalIgnoreCase) && string.Equals(f[1].Trim(), "Role", StringComparison.OrdinalIgnoreCase)) continue;
+                        string scope = f.Length > 2 ? f[2].Trim() : "";
+                        bool known = false; foreach (string option in GenAiRoles.Scopes) if (string.Equals(option, scope, StringComparison.OrdinalIgnoreCase)) { scope = option; known = true; }
+                        if (!known) scope = "Computers";
+                        string key = f[0].Trim() + "\t" + f[1].Trim();
+                        if (existing.ContainsKey(key)) { skipped++; continue; }
+                        existing[key] = true;
+                        grid.Rows.Add(f[0].Trim(), f[1].Trim(), scope, f.Length > 3 ? f[3].Trim() : ""); added++;
+                    }
+                    message.Text = "Imported " + added + " rules" + (skipped > 0 ? " (" + skipped + " duplicates skipped)" : "") + ". Press Save to keep them.";
+                }
+                catch (Exception ex) { message.Text = "Import failed: " + ex.Message; }
+            }
+        }
 
         private void Save()
         {
@@ -5191,6 +5314,124 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
     }
 
+    /// <summary>Create and edit custom system prompts. The built-in prompt can be viewed and copied but not changed.</summary>
+    internal sealed class GenAiPromptsDialog : Form
+    {
+        private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81), Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202);
+        private readonly ListBox list;
+        private readonly TextBox nameBox, editor;
+        private readonly Label message;
+        private bool builtIn = true;
+
+        public GenAiPromptsDialog()
+        {
+            Text = "Custom prompts"; Name = "GenAiPromptsDialog"; Size = new Size(1040, 700); MinimumSize = new Size(820, 520);
+            StartPosition = FormStartPosition.CenterParent; BackColor = PanelColor; ForeColor = Ink; Font = new Font("Segoe UI", 10);
+            var intro = new Label
+            {
+                Dock = DockStyle.Top, Height = 74, ForeColor = Muted, Padding = new Padding(10, 8, 10, 2),
+                Text = "The prompt is the instruction message sent before every question. The question itself always arrives in tagged blocks (<scope>, <relationships>, <roles>, <glossary>, <limits>, <task>), so a custom prompt should explain them: use Copy built-in, or Insert data dictionary for a prompt written from scratch. Choose which prompt to use from the Prompt box on the GenAI tab."
+            };
+            list = new ListBox { Dock = DockStyle.Left, Width = 250, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, IntegralHeight = false };
+            list.SelectedIndexChanged += delegate { LoadSelected(); };
+            var right = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Padding = new Padding(8, 0, 0, 0) };
+            nameBox = new TextBox { Dock = DockStyle.Top, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle };
+            editor = new TextBox { Dock = DockStyle.Fill, Multiline = true, AcceptsReturn = true, AcceptsTab = false, ScrollBars = ScrollBars.Both, WordWrap = false, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 10) };
+            right.Controls.Add(editor); right.Controls.Add(nameBox);
+
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 90, BackColor = PanelColor, Padding = new Padding(6, 6, 6, 2), FlowDirection = FlowDirection.LeftToRight };
+            Button blank = Flat("New blank"), copyBuiltIn = Flat("Copy built-in"), duplicate = Flat("Duplicate"), dictionary = Flat("Insert data dictionary"), save = Flat("Save"), delete = Flat("Delete"), import = Flat("Import..."), export = Flat("Export..."), close = Flat("Close");
+            blank.Click += delegate { StartNew("My prompt", ""); };
+            copyBuiltIn.Click += delegate { StartNew("Copy of built-in", GenAiPrompt.SystemText); };
+            duplicate.Click += delegate { StartNew("Copy of " + nameBox.Text.Trim(), editor.Text.Replace("\r\n", "\n")); };
+            dictionary.Click += delegate { if (builtIn) { message.Text = "Create or open a custom prompt first."; return; } editor.AppendText((editor.TextLength > 0 ? "\r\n\r\n" : "") + GenAiPrompt.DataDictionary().Replace("\n", "\r\n")); };
+            save.Click += delegate { Save(); };
+            delete.Click += delegate { Remove(); };
+            import.Click += delegate { Import(); };
+            export.Click += delegate { Export(); };
+            close.Click += delegate { Close(); };
+            message = new Label { AutoSize = true, ForeColor = Muted, Margin = new Padding(10, 9, 0, 0) };
+            bottom.Controls.AddRange(new Control[] { blank, copyBuiltIn, duplicate, dictionary, save, delete, import, export, close });
+            var foot = new Panel { Dock = DockStyle.Bottom, Height = 28, BackColor = PanelColor }; foot.Controls.Add(message); message.Location = new Point(10, 4);
+
+            Controls.Add(right); Controls.Add(list); Controls.Add(bottom); Controls.Add(foot); Controls.Add(intro);
+            ReloadList(GenAiSession.PromptName);
+        }
+
+        private static Button Flat(string text)
+        {
+            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Height = 32, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 39, 60), ForeColor = Ink, Margin = new Padding(4, 2, 4, 2), Padding = new Padding(8, 0, 8, 0) };
+            b.FlatAppearance.BorderColor = Line; return b;
+        }
+
+        private void ReloadList(string select)
+        {
+            list.Items.Clear(); list.Items.Add(GenAiPrompts.BuiltInName);
+            foreach (string name in GenAiPrompts.Names()) list.Items.Add(name);
+            int index = 0;
+            for (int i = 0; i < list.Items.Count; i++) if (string.Equals(Convert.ToString(list.Items[i]), select, StringComparison.OrdinalIgnoreCase)) index = i;
+            list.SelectedIndex = index;
+        }
+
+        private void LoadSelected()
+        {
+            string name = Convert.ToString(list.SelectedItem);
+            if (name.Length == 0) return;
+            builtIn = name == GenAiPrompts.BuiltInName;
+            nameBox.Text = name; nameBox.ReadOnly = builtIn; editor.ReadOnly = builtIn;
+            string text = builtIn ? GenAiPrompt.SystemText : (GenAiPrompts.Read(name) ?? "");
+            editor.Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            message.Text = builtIn ? "The built-in prompt is read only. Use Copy built-in to make an editable version." : "";
+        }
+
+        private void StartNew(string name, string text)
+        {
+            list.ClearSelected(); builtIn = false; nameBox.ReadOnly = false; editor.ReadOnly = false;
+            nameBox.Text = GenAiPrompts.CleanName(name); editor.Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            message.Text = "New prompt. Give it a name and press Save.";
+        }
+
+        private void Save()
+        {
+            if (builtIn) { message.Text = "The built-in prompt cannot be changed. Use Copy built-in first."; return; }
+            string error = GenAiPrompts.Write(nameBox.Text, editor.Text);
+            if (error != null) { message.Text = error; return; }
+            ReloadList(GenAiPrompts.CleanName(nameBox.Text));
+            message.Text = "Saved. Choose it from the Prompt box on the GenAI tab.";
+        }
+
+        private void Remove()
+        {
+            if (builtIn) { message.Text = "The built-in prompt cannot be deleted."; return; }
+            string name = GenAiPrompts.CleanName(nameBox.Text);
+            if (name.Length == 0) return;
+            if (MessageBox.Show(this, "Delete the prompt '" + name + "'?", "Custom prompts", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            GenAiPrompts.Delete(name);
+            if (string.Equals(GenAiSession.PromptName, name, StringComparison.OrdinalIgnoreCase)) GenAiSession.PromptName = "";
+            ReloadList("");
+        }
+
+        private void Export()
+        {
+            using (var dialog = new SaveFileDialog { Title = "Export this prompt", Filter = "Text (*.txt)|*.txt|All files (*.*)|*.*", FileName = GenAiPrompts.CleanName(nameBox.Text) + ".txt" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try { File.WriteAllText(dialog.FileName, editor.Text, new UTF8Encoding(false)); message.Text = "Exported to " + Path.GetFileName(dialog.FileName) + "."; }
+                catch (Exception ex) { message.Text = "Export failed: " + ex.Message; }
+            }
+        }
+
+        private void Import()
+        {
+            using (var dialog = new OpenFileDialog { Title = "Import a prompt", Filter = "Text (*.txt;*.md)|*.txt;*.md|All files (*.*)|*.*" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try { StartNew(Path.GetFileNameWithoutExtension(dialog.FileName), File.ReadAllText(dialog.FileName, Encoding.UTF8)); message.Text = "Imported. Check the name and press Save."; }
+                catch (Exception ex) { message.Text = "Import failed: " + ex.Message; }
+            }
+        }
+    }
+
     internal sealed class GenAiPanel : UserControl
     {
         private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81),
@@ -5202,7 +5443,9 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private readonly ComboBox model, task;
         private readonly CheckBox hide, showSent;
         private readonly Label context, status, keyState;
-        private readonly Button useKey, forgetKey, send, cancel, copy, load, roles;
+        private readonly Button useKey, forgetKey, send, cancel, copy, load, roles, editPrompts;
+        private readonly ComboBox promptChoice;
+        private bool loadingPrompts;
         private readonly SplitContainer split;
         private GenAiPrompt prompt;
         private GenAiClient client;
@@ -5216,8 +5459,9 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public GenAiPanel()
         {
             Name = "GenAiPanel"; Dock = DockStyle.Fill; BackColor = PanelColor; ForeColor = Ink;
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -5265,8 +5509,18 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             send = Flat("Send", "GenAiSend"); send.Click += delegate { Send(); };
             cancel = Flat("Cancel", "GenAiCancel"); cancel.Enabled = false; cancel.Click += delegate { if (client != null) client.Cancel(); };
             copy = Flat("Copy answer", "GenAiCopy"); copy.Click += delegate { if (answer.Text.Length > 0) Clipboard.SetText(answer.Text); };
-            req.Controls.AddRange(new Control[] { task, model, load, hide, roles, send, cancel, copy });
+            req.Controls.AddRange(new Control[] { task, model, load, send, cancel, copy });
             layout.Controls.Add(req, 0, 2);
+
+            // Row 3: what is sent besides the path: the prompt, the device roles and the name hiding
+            var opts = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), BackColor = PanelColor };
+            opts.Controls.Add(Small("Prompt"));
+            promptChoice = new ComboBox { Name = "GenAiPromptChoice", DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Bg, ForeColor = Ink, Width = 260, Margin = new Padding(4, 6, 4, 4) };
+            promptChoice.SelectedIndexChanged += delegate { if (!loadingPrompts) { GenAiSession.PromptName = promptChoice.SelectedIndex <= 0 ? "" : Convert.ToString(promptChoice.SelectedItem); Rebuild(); } };
+            editPrompts = Flat("Custom prompts...", "GenAiEditPrompts"); editPrompts.Click += delegate { EditPrompts(); };
+            opts.Controls.Add(promptChoice); opts.Controls.Add(editPrompts); opts.Controls.Add(roles); opts.Controls.Add(hide);
+            layout.Controls.Add(opts, 0, 3);
+            FillPrompts();
 
             // Row 3: answer on top, optional preview of exactly what is sent below
             split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 8, BackColor = Line };
@@ -5275,7 +5529,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             preview = new TextBox { Name = "GenAiPreview", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Muted, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f) };
             split.Panel2.Controls.Add(preview);
             split.Panel2Collapsed = true;
-            layout.Controls.Add(split, 0, 3);
+            layout.Controls.Add(split, 0, 4);
 
             // Row 4: follow-up questions about the answer (the conversation is kept until a new path is loaded)
             var askBar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
@@ -5286,7 +5540,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             askBar.Controls.Add(ask, 1, 0);
             askButton = Flat("Ask", "GenAiAskButton"); askButton.Dock = DockStyle.Fill; askButton.Click += delegate { Ask(); };
             askBar.Controls.Add(askButton, 2, 0);
-            layout.Controls.Add(askBar, 0, 4);
+            layout.Controls.Add(askBar, 0, 5);
 
             // Row 4: status, lane and the preview switch
             var foot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
@@ -5296,7 +5550,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             showSent = new CheckBox { Name = "GenAiShowSent", Text = "Show what will be sent", AutoSize = true, ForeColor = Ink, Anchor = AnchorStyles.Right, Margin = new Padding(0, 6, 4, 0) };
             showSent.CheckedChanged += delegate { split.Panel2Collapsed = !showSent.Checked; if (showSent.Checked) split.SplitterDistance = Math.Max(120, split.Height * 55 / 100); };
             foot.Controls.Add(showSent, 1, 0);
-            layout.Controls.Add(foot, 0, 5);
+            layout.Controls.Add(foot, 0, 6);
 
             Disposed += delegate { if (client != null) client.Cancel(); };
             RefreshKeyState(); ShowLane(); Rebuild();
@@ -5342,8 +5596,28 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             GenAiRoles.EnsureLoaded();
             prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; }, GenAiRoles.Items);
             preview.Text = "SYSTEM INSTRUCTIONS\r\n" + prompt.System.Replace("\n", "\r\n") + "\r\n\r\nQUESTION\r\n" + prompt.User.Replace("\n", "\r\n");
+            string custom = GenAiPrompts.Resolve(GenAiSession.PromptName);
+            if (custom != null) prompt.System = custom;
             int approx = (prompt.System.Length + prompt.User.Length) / 4;
-            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + GenAiRoles.Items.Count + " role rules" : "");
+            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + GenAiRoles.Items.Count + " role rules" : "") + (custom != null ? ", prompt: " + GenAiSession.PromptName : "");
+        }
+
+        private void FillPrompts()
+        {
+            loadingPrompts = true;
+            promptChoice.Items.Clear(); promptChoice.Items.Add(GenAiPrompts.BuiltInName);
+            foreach (string name in GenAiPrompts.Names()) promptChoice.Items.Add(name);
+            int index = 0;
+            for (int i = 1; i < promptChoice.Items.Count; i++) if (string.Equals(Convert.ToString(promptChoice.Items[i]), GenAiSession.PromptName, StringComparison.OrdinalIgnoreCase)) index = i;
+            if (index == 0) GenAiSession.PromptName = "";
+            promptChoice.SelectedIndex = index;
+            loadingPrompts = false;
+        }
+
+        private void EditPrompts()
+        {
+            using (var dialog = new GenAiPromptsDialog()) dialog.ShowDialog(FindForm());
+            FillPrompts(); Rebuild();
         }
 
         private void EditRoles()

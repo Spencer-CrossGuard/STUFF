@@ -4392,22 +4392,33 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             return 0;
         }
 
-        public List<string> ListModels(out string error)
+        public int LastStatus;
+
+        /// <summary>Asks the service which models this key can use. Doubles as the key test: a rejected key comes back as HTTP 401 or 403.</summary>
+        public List<GenAiModelInfo> ListModels(out string error)
         {
-            error = null; var ids = new List<string>();
+            error = null; var models = new List<GenAiModelInfo>();
             try
             {
                 using (var response = Send("/v1/models", false, null))
                 {
-                    if (!response.IsSuccessStatusCode) { error = ErrorText(response); return ids; }
-                    var list = GenAiJson.Get(GenAiJson.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult()), "data") as List<object>;
-                    if (list != null) foreach (object item in list) { string id = GenAiJson.Get(item, "id") as string; if (id != null) ids.Add(id); }
+                    LastStatus = (int)response.StatusCode;
+                    if (!response.IsSuccessStatusCode) { error = ErrorText(response); return models; }
+                    object root = GenAiJson.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+                    var list = (root as List<object>) ?? (GenAiJson.Get(root, "data") as List<object>) ?? (GenAiJson.Get(root, "models") as List<object>);
+                    if (list != null)
+                        foreach (object item in list)
+                        {
+                            GenAiModelInfo info = GenAiModels.Parse(item);
+                            if (info != null && info.Id.IndexOf("embedding", StringComparison.OrdinalIgnoreCase) < 0) models.Add(info);
+                        }
+                    else error = "The service answered, but the reply had no model list.";
                 }
             }
             catch (OperationCanceledException) { error = "Cancelled."; }
             catch (Exception ex) { error = "Could not reach the service: " + Inner(ex); }
-            ids.Sort(StringComparer.OrdinalIgnoreCase);
-            return ids;
+            models.Sort(delegate(GenAiModelInfo x, GenAiModelInfo y) { return string.Compare(x.Id, y.Id, StringComparison.OrdinalIgnoreCase); });
+            return models;
         }
 
         private static string Inner(Exception ex) { while (ex.InnerException != null) ex = ex.InnerException; return ex.Message; }
@@ -4506,41 +4517,103 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
     }
 
-    /// <summary>Model lanes from the GenAI.mil capability matrix.</summary>
+    internal sealed class GenAiModelInfo
+    {
+        public string Id = "", Lane = "", Capabilities = "";
+        public double In = 1, Out = 2;
+        public bool CostKnown;
+    }
+
+    /// <summary>The models the service reported for this key. Nothing here is hardcoded: it is filled from GET /v1/models.</summary>
     internal static class GenAiModels
     {
-        public sealed class Info { public string Id, Lane; public int In, Out; }
-        public static readonly Info[] Known = new Info[] {
-            new Info { Id = "gemini-3.8-flash", Lane = "Assist", In = 0, Out = 0 },
-            new Info { Id = "gemini-3.7-flash", Lane = "Assist", In = 0, Out = 0 },
-            new Info { Id = "gemini-3.5-flash", Lane = "Assist", In = 0, Out = 0 },
-            new Info { Id = "gemini-4-argon", Lane = "Assist", In = 0, Out = 0 },
-            new Info { Id = "gemini-3.1-flash-lite-withtools", Lane = "Standard", In = 1, Out = 1 },
-            new Info { Id = "gemini-3.5-flash-lite-withtools", Lane = "Standard", In = 1, Out = 1 },
-            new Info { Id = "gemini-3.5-flash-withtools", Lane = "Standard", In = 1, Out = 1 },
-            new Info { Id = "gemini-3.7-flash-withtools", Lane = "Standard", In = 1, Out = 1 },
-            new Info { Id = "gemini-3.8-flash-withtools", Lane = "Standard", In = 1, Out = 2 },
-            new Info { Id = "gemini-4-argon-withtools", Lane = "Standard", In = 1, Out = 2 },
-            new Info { Id = "gemini-4-hydrogen-withtools", Lane = "Standard", In = 1, Out = 2 }
-        };
-        public static Info Find(string id)
+        public static List<GenAiModelInfo> Available = new List<GenAiModelInfo>();
+
+        public static GenAiModelInfo Find(string id)
         {
-            foreach (Info info in Known) if (string.Equals(info.Id, id, StringComparison.OrdinalIgnoreCase)) return info;
+            foreach (GenAiModelInfo info in Available) if (string.Equals(info.Id, id, StringComparison.OrdinalIgnoreCase)) return info;
             return null;
         }
+
+        private static object Lookup(Dictionary<string, object> map, string[] names, int depth)
+        {
+            if (map == null) return null;
+            foreach (var pair in map) foreach (string n in names) if (string.Equals(pair.Key, n, StringComparison.OrdinalIgnoreCase) && pair.Value != null) return pair.Value;
+            if (depth > 0)
+                foreach (var pair in map)
+                {
+                    var inner = pair.Value as Dictionary<string, object>;
+                    if (inner != null) { object hit = Lookup(inner, names, depth - 1); if (hit != null) return hit; }
+                }
+            return null;
+        }
+
+        private static bool Number(object o, out double value)
+        {
+            value = 0;
+            if (o is double) { value = (double)o; return true; }
+            string s = o as string;
+            return s != null && double.TryParse(s.Trim().TrimEnd('x', 'X'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+
+        /// <summary>Reads one entry of the model list. The cost and lane fields are optional; whatever the service sends is used.</summary>
+        public static GenAiModelInfo Parse(object item)
+        {
+            var map = item as Dictionary<string, object>;
+            string id = map != null ? GenAiJson.Get(map, "id") as string : item as string;
+            if (string.IsNullOrEmpty(id) && map != null) id = GenAiJson.Get(map, "name") as string;
+            if (string.IsNullOrEmpty(id)) return null;
+            var info = new GenAiModelInfo { Id = id };
+            if (map == null) return info;
+            info.Lane = (Lookup(map, new string[] { "lane", "routing_lane", "routinglane" }, 1) as string) ?? "";
+            double a, b;
+            object cost = Lookup(map, new string[] { "credit_multiplier", "creditmultiplier", "credit_multipliers", "multiplier", "credits" }, 1);
+            var costMap = cost as Dictionary<string, object>;
+            if (costMap != null)
+            {
+                object i = Lookup(costMap, new string[] { "input", "in", "prompt", "w_in", "input_multiplier" }, 0), o = Lookup(costMap, new string[] { "output", "out", "completion", "w_out", "output_multiplier" }, 0);
+                if (Number(i, out a) && Number(o, out b)) { info.In = a; info.Out = b; info.CostKnown = true; }
+            }
+            else if (cost is string)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match((string)cost, @"(\d+(?:\.\d+)?)\s*x?\s*in\D+(\d+(?:\.\d+)?)\s*x?\s*out", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success) { info.In = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture); info.Out = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture); info.CostKnown = true; }
+                else if (Number(cost, out a)) { info.In = a; info.Out = a; info.CostKnown = true; }
+            }
+            else if (Number(cost, out a)) { info.In = a; info.Out = a; info.CostKnown = true; }
+            if (!info.CostKnown)
+            {
+                object i2 = Lookup(map, new string[] { "input_multiplier", "w_in", "input_credit_multiplier" }, 1), o2 = Lookup(map, new string[] { "output_multiplier", "w_out", "output_credit_multiplier" }, 1);
+                if (Number(i2, out a) && Number(o2, out b)) { info.In = a; info.Out = b; info.CostKnown = true; }
+            }
+            if (!info.CostKnown && info.Lane.IndexOf("assist", StringComparison.OrdinalIgnoreCase) >= 0) { info.In = 0; info.Out = 0; info.CostKnown = true; }
+            object caps = Lookup(map, new string[] { "capabilities", "features", "supports" }, 1);
+            var names = new List<string>();
+            var capList = caps as List<object>;
+            if (capList != null) foreach (object c in capList) { string t = c as string; if (t != null) names.Add(t); }
+            var capMap = caps as Dictionary<string, object>;
+            if (capMap != null) foreach (var pair in capMap) if (pair.Value is bool && (bool)pair.Value) names.Add(pair.Key);
+            info.Capabilities = string.Join(", ", names.ToArray());
+            return info;
+        }
+
         public static string Describe(string id)
         {
-            Info info = Find(id);
-            if (info == null) return "Model not in the built-in list: credits are counted as Standard lane (1x in, 2x out) to be safe. Embedding models cannot be used for this.";
-            if (info.Lane == "Assist") return "Assist lane: 0 credits (free), still subject to the request and token limits. Tool definitions are ignored, which this does not need.";
-            return "Standard lane: " + info.In + "x per prompt token, " + info.Out + "x per answer token, drawn from the 2,000,000 credits per 24 hours.";
+            GenAiModelInfo info = Find(id);
+            if (string.IsNullOrEmpty(id)) return "Choose a model. The list comes from the service after the key is tested.";
+            if (info == null) return "This model is not in the list the service returned (or the key has not been tested yet): credits are counted as 1x in, 2x out to be safe.";
+            string detail = (info.Lane.Length > 0 ? "Lane: " + info.Lane + ". " : "") + (info.Capabilities.Length > 0 ? "Capabilities: " + info.Capabilities + ". " : "");
+            if (!info.CostKnown) return detail + "The service did not report a cost for this model, so credits are counted as 1x in, 2x out to be safe.";
+            if (info.In == 0 && info.Out == 0) return detail + "Credit multiplier 0 in and out: it draws no credits from the daily limit, but request and token limits still apply.";
+            return detail + "Credit multiplier " + info.In.ToString(CultureInfo.InvariantCulture) + "x per prompt token, " + info.Out.ToString(CultureInfo.InvariantCulture) + "x per answer token, drawn from the daily credits.";
         }
+
         public static long Credits(string id, int promptTokens, int completionTokens)
         {
-            Info info = Find(id);
-            // A model that is not in the list is counted as Standard 1x in, 2x out, so credits are never under-reported.
-            int multiplierIn = info == null ? 1 : info.In, multiplierOut = info == null ? 2 : info.Out;
-            return (long)promptTokens * multiplierIn + (long)completionTokens * multiplierOut;
+            GenAiModelInfo info = Find(id);
+            // A model the service did not describe is counted as 1x in, 2x out, so credits are never under-reported.
+            double multiplierIn = info != null && info.CostKnown ? info.In : 1, multiplierOut = info != null && info.CostKnown ? info.Out : 2;
+            return (long)Math.Round(promptTokens * multiplierIn + completionTokens * multiplierOut);
         }
     }
 
@@ -4633,6 +4706,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         private static bool ScopeAllows(string scope, string kind)
         {
+            if (string.IsNullOrEmpty(kind)) return true;     // kind unknown: let the name pattern decide
             switch ((scope ?? "Any").ToLowerInvariant())
             {
                 case "computers": return string.Equals(kind, "computers", StringComparison.OrdinalIgnoreCase);
@@ -4760,6 +4834,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         public string System, User;
         public bool Truncated;
+        public int RolesMatched;
         public int Steps;
         private readonly Dictionary<string, string> tokenToName = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -4771,6 +4846,15 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
 
         public static readonly string[] Tasks = new string[] { "Explain the path and recommend fixes", "Explain the path only", "Recommend fixes only" };
+
+        /// <summary>The kind of the source ("s") or target ("t") object. The viewer stores it as st / tt; older rows use sk / tk. "?" means unknown.</summary>
+        internal static string KindOfSide(Dictionary<string, object> edge, string side)
+        {
+            object v; string kind = "";
+            if (edge.TryGetValue(side + "t", out v) && v != null) kind = Convert.ToString(v, CultureInfo.InvariantCulture);
+            if ((kind.Length == 0 || kind == "?") && edge.TryGetValue(side + "k", out v) && v != null) kind = Convert.ToString(v, CultureInfo.InvariantCulture);
+            return kind == "?" ? "" : kind;
+        }
 
         private static string KindWord(string kind)
         {
@@ -4814,7 +4898,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             var counters = new Dictionary<string, int>();
             Func<Dictionary<string, object>, string, string> label = delegate(Dictionary<string, object> edge, string side)
             {
-                string id = Get(edge, side), name = Get(edge, side + "n"), kind = Get(edge, side + "k");
+                string id = Get(edge, side), name = Get(edge, side + "n"), kind = KindOfSide(edge, side);
                 string display = name.Length > 0 ? name : id;
                 if (roles != null && !roleOf.ContainsKey(id) && !tokenByIdForRoles.ContainsKey(id))
                 {
@@ -4843,7 +4927,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 count++;
                 string type = Get(edge, "ty");
                 if (!types.Contains(type)) types.Add(type);
-                string sk = Get(edge, "sk"), tk = Get(edge, "tk");
+                string sk = KindOfSide(edge, "s"), tk = KindOfSide(edge, "t");
                 sIds.Add(Get(edge, "s")); tIds.Add(Get(edge, "t"));
                 string sLabel = label(edge, "s"), tLabel = label(edge, "t");
                 GenAiRole sRole, tRole; roleOf.TryGetValue(Get(edge, "s"), out sRole); roleOf.TryGetValue(Get(edge, "t"), out tRole);
@@ -4875,6 +4959,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 : sameTarget ? "a set of " + count + " separate relationships that all lead to the same target (alternative routes, not a chain)"
                 : "a set of " + count + " relationships that do not form one chain";
             // task: 0 = both, 1 = explain only, 2 = recommend only
+            p.RolesMatched = roleOrder.Count;
             string want = task == 1 ? "Explain this. Produce SUMMARY, WHY IT MATTERS, STEP BY STEP and CONFIDENCE AND LIMITS only."
                 : task == 2 ? "Recommend how to fix this. Produce SUMMARY, RECOMMENDED FIXES and CONFIDENCE AND LIMITS only."
                 : "Explain this, then recommend how to fix it. Produce all sections.";
@@ -4884,7 +4969,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 .Append(p.Truncated ? "The list was cut to the first " + MaxSteps + " relationships.\n" : "The list is complete for what was selected on screen.\n")
                 .Append("</scope>\n\n");
             user.Append("<relationships>\n").Append(lines).Append("</relationships>\n\n");
-            user.Append("<roles>\n").Append(roleText.Length > 0 ? roleText.ToString() : "No roles were provided. Every object's type is unknown unless its kind says otherwise.\n").Append("</roles>\n\n");
+            user.Append("<roles>\n").Append(roleText.Length > 0 ? roleText.ToString() : (roles != null && roles.Count > 0 ? "The administrator has " + roles.Count + " naming rule(s) for device roles, but none matched an object in this list. Every object's type is unknown unless its kind says otherwise.\n" : "No roles were provided. Every object's type is unknown unless its kind says otherwise.\n")).Append("</roles>\n\n");
             user.Append("<glossary>\n").Append(glossaryText.Length > 0 ? glossaryText.ToString() : "(none)\n").Append("</glossary>\n\n");
             user.Append("<limits>\nNot included: raw evidence, permission masks, inheritance details, SIDs and distinguished names, and anything not on screen. These relationships are recorded observations that need verification; they are not proof of effective access.\n</limits>\n\n");
             user.Append("<task>\n").Append(want).Append(" Follow the output format in your instructions. Do not end with a question or an offer of more help.\n</task>");
@@ -5170,7 +5255,39 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
     {
         public static string Key = "";
         public static string Address = "https://api.genai.mil";
-        public static string Model = "gemini-3.8-flash";
+        public static string Model = "";          // the last model used; the list itself comes from the service
+        private static bool settingsLoaded;
+
+        private static string SettingsFile() { return Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tessera"), "genai-settings.txt"); }
+
+        /// <summary>Remembers the last model and address between runs. Never the key.</summary>
+        public static void LoadSettings()
+        {
+            if (settingsLoaded) return;
+            settingsLoaded = true;
+            try
+            {
+                if (!File.Exists(SettingsFile())) return;
+                foreach (string line in File.ReadAllLines(SettingsFile(), Encoding.UTF8))
+                {
+                    int eq = line.IndexOf('=');
+                    if (eq <= 0) continue;
+                    string name = line.Substring(0, eq).Trim(), value = line.Substring(eq + 1).Trim();
+                    if (name == "Model") Model = value; else if (name == "Address" && value.Length > 0) Address = value;
+                }
+            }
+            catch (Exception) { }
+        }
+
+        public static void SaveSettings()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SettingsFile()));
+                File.WriteAllText(SettingsFile(), "Model=" + Model + "\r\nAddress=" + Address + "\r\n", new UTF8Encoding(false));
+            }
+            catch (Exception) { }
+        }
         public static bool HideNames = true;
         public static int Task;
         public static string PromptName = "";   // empty means the built-in prompt
@@ -5449,24 +5566,27 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private readonly Button useKey, forgetKey, send, cancel, copy, load, roles, editPrompts;
         private readonly ComboBox promptChoice;
         private bool loadingPrompts;
+        private bool testing;
         private readonly SplitContainer split;
         private GenAiPrompt prompt;
         private GenAiClient client;
         private Thread worker;
         private string rawAnswer = "";
-        private readonly TextBox ask;
+        private readonly TextBox ask, subject;
         private readonly Button askButton;
         private readonly List<string[]> history = new List<string[]>();
         private string transcript = "";
 
         public GenAiPanel()
         {
+            GenAiSession.LoadSettings();
             Name = "GenAiPanel"; Dock = DockStyle.Fill; BackColor = PanelColor; ForeColor = Ink;
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 128));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
@@ -5502,10 +5622,9 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             task.SelectedIndex = Math.Max(0, Math.Min(GenAiSession.Task, task.Items.Count - 1));
             task.SelectedIndexChanged += delegate { GenAiSession.Task = task.SelectedIndex; Rebuild(); };
             model = new ComboBox { Name = "GenAiModel", DropDownStyle = ComboBoxStyle.DropDown, BackColor = Bg, ForeColor = Ink, Width = 235, Margin = new Padding(4, 6, 4, 4) };
-            foreach (GenAiModels.Info info in GenAiModels.Known) model.Items.Add(info.Id);
             model.Text = GenAiSession.Model;
             model.TextChanged += delegate { GenAiSession.Model = model.Text.Trim(); ShowLane(); };
-            load = Flat("Load models", "GenAiLoadModels"); load.Click += delegate { LoadModels(); };
+            load = Flat("Test key", "GenAiTestKey"); load.Click += delegate { TestKey(true); };
             hide = new CheckBox { Name = "GenAiHide", Text = "Hide object names", Checked = GenAiSession.HideNames, AutoSize = true, ForeColor = Ink, Margin = new Padding(10, 8, 6, 0) };
             hide.CheckedChanged += delegate { GenAiSession.HideNames = hide.Checked; Rebuild(); };
             roles = Flat("Device roles", "GenAiRoles"); roles.Click += delegate { EditRoles(); };
@@ -5532,7 +5651,10 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             preview = new TextBox { Name = "GenAiPreview", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Muted, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f) };
             split.Panel2.Controls.Add(preview);
             split.Panel2Collapsed = true;
-            layout.Controls.Add(split, 0, 4);
+            // Row 4: exactly which path is being explained, with the real names (they stay on this computer)
+            subject = new TextBox { Name = "GenAiSubject", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.FromArgb(15, 24, 40), ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9.5f), Margin = new Padding(0, 2, 0, 4) };
+            layout.Controls.Add(subject, 0, 4);
+            layout.Controls.Add(split, 0, 5);
 
             // Row 4: follow-up questions about the answer (the conversation is kept until a new path is loaded)
             var askBar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
@@ -5543,7 +5665,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             askBar.Controls.Add(ask, 1, 0);
             askButton = Flat("Ask", "GenAiAskButton"); askButton.Dock = DockStyle.Fill; askButton.Click += delegate { Ask(); };
             askBar.Controls.Add(askButton, 2, 0);
-            layout.Controls.Add(askBar, 0, 5);
+            layout.Controls.Add(askBar, 0, 6);
 
             // Row 4: status, lane and the preview switch
             var foot = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0), BackColor = PanelColor };
@@ -5553,7 +5675,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             showSent = new CheckBox { Name = "GenAiShowSent", Text = "Show what will be sent", AutoSize = true, ForeColor = Ink, Anchor = AnchorStyles.Right, Margin = new Padding(0, 6, 4, 0) };
             showSent.CheckedChanged += delegate { split.Panel2Collapsed = !showSent.Checked; if (showSent.Checked) split.SplitterDistance = Math.Max(120, split.Height * 55 / 100); };
             foot.Controls.Add(showSent, 1, 0);
-            layout.Controls.Add(foot, 0, 6);
+            layout.Controls.Add(foot, 0, 7);
 
             Disposed += delegate { if (client != null) client.Cancel(); };
             RefreshKeyState(); ShowLane(); Rebuild();
@@ -5574,8 +5696,10 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private void SaveKey()
         {
             string typed = key.Text.Trim();
-            if (typed.Length > 0) { GenAiSession.Key = typed; key.Text = ""; }
+            bool changed = typed.Length > 0;
+            if (changed) { GenAiSession.Key = typed; key.Text = ""; }
             RefreshKeyState();
+            if (changed) TestKey(false);          // a new key is tested right away and the model list is loaded
         }
 
         private void RefreshKeyState()
@@ -5597,12 +5721,72 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private void Rebuild()
         {
             GenAiRoles.EnsureLoaded();
+            RenderSubject();
             prompt = GenAiPrompt.Build(edges, hide.Checked, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; }, GenAiRoles.Items);
             preview.Text = "SYSTEM INSTRUCTIONS\r\n" + prompt.System.Replace("\n", "\r\n") + "\r\n\r\nQUESTION\r\n" + prompt.User.Replace("\n", "\r\n");
             string custom = GenAiPrompts.Resolve(GenAiSession.PromptName);
             if (custom != null) prompt.System = custom;
             int approx = (prompt.System.Length + prompt.User.Length) / 4;
-            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + GenAiRoles.Items.Count + " role rules" : "") + (custom != null ? ", prompt: " + GenAiSession.PromptName : "");
+            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (hide.Checked ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + prompt.RolesMatched + " object(s) matched your " + GenAiRoles.Items.Count + " role rule(s)" : ", no device role rules set") + (custom != null ? ", prompt: " + GenAiSession.PromptName : "");
+        }
+
+        private static string NameOf(Dictionary<string, object> edge, string side)
+        {
+            object v; string name = edge.TryGetValue(side + "n", out v) && v != null ? Convert.ToString(v) : "";
+            if (name.Length == 0) name = edge.TryGetValue(side, out v) && v != null ? Convert.ToString(v) : "";
+            return name;
+        }
+
+        private static string KindOf(Dictionary<string, object> edge, string side)
+        {
+            return GenAiPrompt.KindOfSide(edge, side);
+        }
+
+        private static string RoleOf(string name, string kind)
+        {
+            foreach (GenAiRole r in GenAiRoles.Items) if (r.Matches(name, kind)) return r.Role;
+            return "";
+        }
+
+        private static string Describe(Dictionary<string, object> edge, string side)
+        {
+            string name = NameOf(edge, side), kind = KindOf(edge, side), role = RoleOf(name, kind);
+            string extra = kind.Length > 0 || role.Length > 0 ? " (" + kind + (kind.Length > 0 && role.Length > 0 ? ", " : "") + (role.Length > 0 ? "role: " + role : "") + ")" : "";
+            return name + extra;
+        }
+
+        /// <summary>Shows the path being explained, with real names, so there is no doubt what the question is about.</summary>
+        private void RenderSubject()
+        {
+            var sb = new StringBuilder();
+            var shown = new List<Dictionary<string, object>>();
+            foreach (var edge in edges) { object ty; if (edge.TryGetValue("ty", out ty) && ty != null && Convert.ToString(ty).Length > 0) shown.Add(edge); }
+            if (shown.Count == 0)
+            {
+                subject.Text = "NOTHING LOADED. Use Ask GenAI.mil on the Paths tab, or on Objects and relationships, to load a path or a relationship here.";
+                return;
+            }
+            bool chain = shown.Count > 1;
+            for (int i = 0; i + 1 < shown.Count; i++) { object t, s2; shown[i].TryGetValue("t", out t); shown[i + 1].TryGetValue("s", out s2); if (!string.Equals(Convert.ToString(t), Convert.ToString(s2), StringComparison.OrdinalIgnoreCase)) chain = false; }
+            sb.Append("EXPLAINING: ").Append(source.Length > 0 ? source : "selection").Append(" - ");
+            if (chain)
+            {
+                sb.Append(NameOf(shown[0], "s"));
+                foreach (var edge in shown) sb.Append("  ->  ").Append(NameOf(edge, "t"));
+                sb.Append("\r\n");
+            }
+            else sb.Append(shown.Count).Append(shown.Count == 1 ? " relationship" : " relationships (not one chain)").Append("\r\n");
+            int n = 0;
+            foreach (var edge in shown)
+            {
+                n++;
+                object ty; edge.TryGetValue("ty", out ty);
+                sb.Append(n).Append(". ").Append(Describe(edge, "s")).Append("  --[").Append(Convert.ToString(ty)).Append("]-->  ").Append(Describe(edge, "t"));
+                if (n > GenAiPrompt.MaxSteps) sb.Append("   (not sent: only the first " + GenAiPrompt.MaxSteps + " are sent)");
+                sb.Append("\r\n");
+            }
+            subject.Text = sb.ToString();
+            subject.SelectionStart = 0; subject.ScrollToCaret();
         }
 
         private void FillPrompts()
@@ -5633,25 +5817,41 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         private string UsableKey() { SaveKey(); return GenAiSession.Key; }
 
-        private void LoadModels()
+        /// <summary>Calls GET /v1/models with the saved key: this is the key test, and its answer fills the model box.</summary>
+        private void TestKey(bool manual)
         {
-            string secret = UsableKey();
-            if (secret.Length == 0) { SetStatus("Enter the API key first.", true); return; }
-            string where = address.Text; load.Enabled = false; SetStatus("Loading the model list...", false);
+            if (testing) return;
+            if (GenAiSession.Key.Length == 0) { string typed = key.Text.Trim(); if (typed.Length > 0) { SaveKey(); return; } SetStatus("Enter the API key first.", true); return; }
+            string where = address.Text.Trim(), secret = GenAiSession.Key;
+            testing = true; load.Enabled = false; SetStatus("Testing the key: asking " + where + " for the model list...", false);
             var thread = new Thread(delegate()
             {
-                string error; var ids = new GenAiClient(where, secret).ListModels(out error);
+                var client = new GenAiClient(where, secret);
+                string error; var models = client.ListModels(out error);
+                int status = client.LastStatus;
                 Post(delegate
                 {
-                    load.Enabled = true;
-                    if (error != null) { SetStatus(error, true); return; }
-                    string current = model.Text; model.Items.Clear();
-                    foreach (string id in ids) if (id.IndexOf("embedding", StringComparison.OrdinalIgnoreCase) < 0) model.Items.Add(id);
-                    model.Text = current; SetStatus(ids.Count + " models available.", false);
+                    testing = false; load.Enabled = true;
+                    if (error != null)
+                    {
+                        if (status == 401 || status == 403) { GenAiSession.Forget(); RefreshKeyState(); }
+                        SetStatus("Key test failed: " + error, true); return;
+                    }
+                    GenAiModels.Available = models;
+                    string current = model.Text.Trim();
+                    model.Items.Clear();
+                    foreach (GenAiModelInfo info in models) model.Items.Add(info.Id);
+                    bool keep = GenAiModels.Find(current) != null;
+                    model.Text = keep ? current : "";
+                    GenAiSession.Model = model.Text.Trim();
+                    SetStatus("Key works. " + models.Count + " models available" + (keep || models.Count == 0 ? "." : ". Choose one in the Model box."), false);
+                    ShowLaneNow();
                 });
             });
             thread.IsBackground = true; thread.Start();
         }
+
+        private void ShowLaneNow() { if (model.Text.Trim().Length > 0) SetStatus(GenAiModels.Describe(model.Text.Trim()), false); }
 
         private void Post(Action action)
         {
@@ -5688,6 +5888,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             string secret = UsableKey(), chosen = model.Text.Trim();
             if (secret.Length == 0) { SetStatus("Enter your API key.", true); if (followUp) Undo(transcriptBefore); return; }
             if (chosen.Length == 0) { SetStatus("Choose a model.", true); if (followUp) Undo(transcriptBefore); return; }
+            GenAiSession.SaveSettings();
             rawAnswer = ""; send.Enabled = false; askButton.Enabled = false; cancel.Enabled = true; ShowAnswer(""); SetStatus("Sending to " + address.Text.Trim() + " ...", false);
             client = new GenAiClient(address.Text, secret);
             var current = client; var currentPrompt = prompt; var turns = new List<string[]>(history);

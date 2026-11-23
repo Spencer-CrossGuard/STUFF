@@ -1,11 +1,11 @@
-# GenAI.mil assistant: what is sent and how the prompt is built
+# Scout (GenAI.mil assistant): what is sent and how the prompt is built
 
-Everything below is visible in the viewer under **Show what will be sent**. Nothing is sent until you press Send.
+Everything below is visible in the viewer under **Show what will be sent**. The address is fixed to `https://api.genai.mil` in the program. Nothing is sent until you press Send.
 
 ## What is sent
 One request to `POST {address}/v1/chat/completions` with two messages (more in a follow-up conversation):
 
-1. **System message** (the built-in text, about 2,100 tokens, including a short reference for all 30 relationship types the tool follows, unless you choose a custom prompt on the GenAI tab): role, a data dictionary (how to read the data), how to reason, rules, output format, and a format example.
+1. **System message** (the built-in text, about 2,100 tokens, including a short reference for all 30 relationship types the tool follows, unless you choose a custom prompt in Scout setup): role, a data dictionary (how to read the data), how to reason, rules, output format, and a format example.
 2. **User message** (changes per question), made of tagged blocks:
    * `<scope>`: whether the list is one relationship, one chain, or a set of alternative routes to the same target; whether it was cut short (limit 60 relationships); whether names are hidden.
    * `<relationships>`: numbered lines `N. SOURCE (kind, role: ROLE)  --[EDGE_TYPE]-->  TARGET (kind, role: ROLE)`. The arrow points from the object that holds the right to the object it applies to. With Hide object names on, SOURCE and TARGET are tokens (USER-1, GROUP-2, COMPUTER-3).

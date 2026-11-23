@@ -9,6 +9,7 @@ One request to `POST {address}/v1/chat/completions` with two messages (more in a
 2. **User message** (changes per question), made of tagged blocks:
    * `<scope>`: whether the list is one relationship, one chain, or a set of alternative routes to the same target; whether it was cut short (limit 60 relationships); whether names are hidden.
    * `<relationships>`: numbered lines `N. SOURCE (kind, role: ROLE)  --[EDGE_TYPE]-->  TARGET (kind, role: ROLE)`. The arrow points from the object that holds the right to the object it applies to. With Hide object names on, SOURCE and TARGET are tokens (USER-1, GROUP-2, COMPUTER-3).
+   * Depending on what Scout is asked about, the data block is `<relationships>` (a path or one relationship), `<object>` (one object with its properties of note and direct relationships), `<findings>` (a ranked page of saved candidates), `<changes>` (counts and samples from a snapshot comparison) or `<overview>` (counts only). The task block names the sections to produce for each.
    * `<roles>`: from your Device roles naming rules (role names and notes only; the token when names are hidden).
    * `<glossary>`: for each relationship type in the list, what it means in this tool, its usual impact and usual fix (from the viewer's built-in guidance), plus the viewer's guidance for that type against the kind of object it targets (what to check first, effect of changing it).
    * `<limits>`: what is not included (raw evidence, permission masks, inheritance, SIDs, distinguished names).

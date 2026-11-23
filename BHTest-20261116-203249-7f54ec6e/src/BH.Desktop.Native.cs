@@ -110,7 +110,7 @@ namespace BH.Native
         private Dictionary<string,object> relationshipCursor=ViewerJson.Map("target","","bucket","","source","","type","");
         private readonly DesktopPager findingPage=new DesktopPager(true),objectPage=new DesktopPager(false);
         private bool pathIsSaved;
-        private List<object> targetGraphEdges;private GenAiPanel genAi;private TabPage genAiPage;
+        private List<object> targetGraphEdges;private GenAiPanel genAi;private TabPage genAiPage;private string pendingScout;private Dictionary<string,object> lastSummary;
         private FlowLayoutPanel connectionLegend;private Label connectionTitle;
         private readonly List<object> connectionLegendEdges=new List<object>();
         private long pathOffset,totalPathHops;
@@ -202,13 +202,13 @@ namespace BH.Native
         private void RevealDetails(){if(workspaceSplit.Panel2Collapsed){workspaceSplit.Panel2Collapsed=false;toggleDetails.Text="Hide details";}}
         private void BuildFindings()
         {
-            var p=Stack(4);Fixed(p,44);Fixed(p,42);Fill(p);Fixed(p,44);var bar=Bar();findingSearch=Input("FindingSearch",280);
+            var p=Stack(5);Fixed(p,44);Fixed(p,42);Fill(p);Fixed(p,44);Fixed(p,44);var bar=Bar();findingSearch=Input("FindingSearch",280);
             commands.Add(findingSearch);bar.Controls.AddRange(new Control[]{findingSearch,Button("SearchFindings","Search candidates",delegate{findingPage.Reset(findingSearch.Text);LoadPage(findingPage);}),Button("ResetFindings","Clear search",delegate{findingSearch.Clear();findingPage.Reset("");LoadPage(findingPage);})});p.Controls.Add(bar,0,0);
             findingSearch.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter&&!busy){findingPage.Reset(findingSearch.Text);LoadPage(findingPage);e.SuppressKeyPress=true;}};
             findNote=Note("FindingNote","Generate a Deep report to save findings. All saved candidates can be paged here.");p.Controls.Add(findNote,0,1);
             findings=Grid("Findings","Priority","Source","Target","Hops","Score");findings.Columns["Priority"].FillWeight=45;findings.Columns["Hops"].FillWeight=20;findings.Columns["Score"].FillWeight=20;findings.Columns["Score"].ToolTipText="Review ranking, not a measurement of exploitability.";p.Controls.Add(findings,0,2);
             var actions=Bar();findPrevious=Button("FindingPrevious","Previous",delegate{findingPage.Previous();LoadPage(findingPage);});findNext=Button("FindingNext","Next",delegate{findingPage.Next();LoadPage(findingPage);});
-            actions.Controls.AddRange(new Control[]{findPrevious,findNext,Button("OpenFinding","Explain path & fixes",OpenFinding),Button("FindingObject","Inspect source",delegate{var f=Selected(findings);if(f!=null)Inspect(DesktopViewer.Text(DesktopViewer.Map(f["Source"]),"i"));})});p.Controls.Add(actions,0,3);findings.CellDoubleClick+=delegate{if(!busy)OpenFinding();};Page("Saved findings",p);
+            actions.Controls.AddRange(new Control[]{findPrevious,findNext,Button("OpenFinding","Explain path & fixes",OpenFinding),Button("FindingObject","Inspect source",delegate{var f=Selected(findings);if(f!=null)Inspect(DesktopViewer.Text(DesktopViewer.Map(f["Source"]),"i"));})});p.Controls.Add(actions,0,3);var scoutBar=Bar();scoutBar.Controls.AddRange(new Control[]{Button("AskScoutFinding","Ask Scout about this finding",AskScoutFinding),Button("PrioritizeScout","Prioritize this page with Scout",PrioritizeScout),Button("SummarizeScout","Summarize report with Scout",SummarizeScout),Button("CompareScout","Compare snapshot with Scout...",CompareScout)});p.Controls.Add(scoutBar,0,4);findings.CellDoubleClick+=delegate{if(!busy)OpenFinding();};Page("Saved findings",p);
         }
         private void BuildObjects()
         {
@@ -224,7 +224,7 @@ namespace BH.Native
             relationshipNext=Button("RelationshipNext","Next relationships",delegate{LoadRelationships();});rb.Controls.AddRange(new Control[]{direction,Button("LoadRelationships","Load relationships",delegate{ResetRelationships();LoadRelationships();}),relationshipNext});detail.Controls.Add(rb,0,1);
             var dt=new TabControl{Dock=DockStyle.Fill};var prop=new TabPage("Collected properties");properties=Input("Properties",200);properties.Multiline=true;properties.ReadOnly=true;properties.ScrollBars=ScrollBars.Both;properties.WordWrap=false;properties.Dock=DockStyle.Fill;properties.Font=new Font("Consolas",10);var propLayout=Stack(2);Fixed(propLayout,38);Fill(propLayout);propLayout.Padding=new Padding(0);var propHelp=Button("PropertyHelp","Explain a property (F1)",delegate{var topic=DesktopHelpCatalog.ForField(properties.SelectedText.Trim('"',':',' '));ShowHelpLibrary(topic==null?"Object properties":topic.Key);});propHelp.Dock=DockStyle.Fill;propLayout.Controls.Add(propHelp,0,0);propLayout.Controls.Add(properties,0,1);prop.Controls.Add(propLayout);dt.TabPages.Add(prop);
             var rel=new TabPage("Relationships");var rp=Stack(3);Fixed(rp,34);Fill(rp);Fixed(rp,42);relationshipNote=Note("RelationshipNote","");rp.Controls.Add(relationshipNote,0,0);relationships=Grid("Relationships","From","Relationship","To","Ownership");relationships.Columns["Ownership"].Visible=false;rp.Controls.Add(relationships,0,1);
-            var ra=Bar();ra.Controls.AddRange(new Control[]{Button("ExplainRelationship","Explain & fixes",delegate{var e=Selected(relationships);if(e!=null)Explain(e);}),Button("GraphRelationship","Show in graph",delegate{var e=Selected(relationships);if(e!=null)ShowSingleEdge(e);}),Button("InspectOther","Inspect other object",delegate{var e=Selected(relationships);if(e!=null)Inspect(DesktopViewer.Text(e,direction.SelectedIndex==0?"s":"t"));}),Button("AskGenAiRelationship","Ask Scout",delegate{var e=Selected(relationships);if(e!=null){genAi.LoadEdges(new List<Dictionary<string,object>>{e},"Relationship");tabs.SelectedTab=genAiPage;}})});rp.Controls.Add(ra,0,2);rel.Controls.Add(rp);dt.TabPages.Add(rel);detail.Controls.Add(dt,0,2);p.Controls.Add(detail,0,3);Page("Objects & relationships",p);
+            var ra=Bar();ra.Controls.AddRange(new Control[]{Button("ExplainRelationship","Explain & fixes",delegate{var e=Selected(relationships);if(e!=null)Explain(e);}),Button("GraphRelationship","Show in graph",delegate{var e=Selected(relationships);if(e!=null)ShowSingleEdge(e);}),Button("InspectOther","Inspect other object",delegate{var e=Selected(relationships);if(e!=null)Inspect(DesktopViewer.Text(e,direction.SelectedIndex==0?"s":"t"));}),Button("AskGenAiRelationship","Ask Scout",delegate{var e=Selected(relationships);if(e!=null){genAi.LoadEdges(new List<Dictionary<string,object>>{e},"Relationship");tabs.SelectedTab=genAiPage;}}),Button("AskScoutObject","Ask Scout about this object",AskScoutObject)});rp.Controls.Add(ra,0,2);rel.Controls.Add(rp);dt.TabPages.Add(rel);detail.Controls.Add(dt,0,2);p.Controls.Add(detail,0,3);Page("Objects & relationships",p);
         }
         private void BuildPaths()
         {
@@ -313,7 +313,7 @@ namespace BH.Native
         }
         private void CloseRequested(object sender,FormClosingEventArgs e){if(busy){e.Cancel=true;closing=true;cancelled=true;if(activeQuery!=null)activeQuery.ViewerCancel();SetStatus("Stopping the active query before closing…",false);}}
         private void UpdateButtons(){findPrevious.Enabled=!busy&&findingPage.History.Count>0;findNext.Enabled=!busy&&findingPage.More;objectPrevious.Enabled=!busy&&objectPage.History.Count>0;objectNext.Enabled=!busy&&objectPage.More;objectBack.Enabled=!busy&&objectHistoryPosition>0;objectForward.Enabled=!busy&&objectHistoryPosition>=0&&objectHistoryPosition<objectHistory.Count-1;continuePath.Enabled=!busy&&path!=null&&DesktopViewer.Flag(path,"PathLimited");relationshipNext.Enabled=!busy&&selectedObject!=null&&relationshipCursor.ContainsKey("more")&&Convert.ToBoolean(relationshipCursor["more"]);}
-        private void LoadOverview(){Run(delegate(GraphIndex db){return db.ViewerSummary();},delegate(object result){var r=DesktopViewer.Map(result);gpoScopeCoverage=DesktopViewer.Text(r,"GpoScope")+"\r\n\r\n"+DesktopViewer.Text(r,"OwnershipScope")+"\r\n\r\n"+DesktopViewer.Text(r,"AdcsScope");if(r.ContainsKey("PrerequisiteGaps"))gpoScopeCoverage+="\r\n\r\nRecorded AD CS prerequisite gaps (first 30 of "+r["PrerequisiteGapCount"]+")\r\n"+PrerequisiteText((List<string[]>)r["PrerequisiteGaps"]);var state=(DiskAnalysisProgress)r["Analysis"];analysisStatus=state.Status=="NotStarted"?"No saved analysis":state.Status+(state.Status=="Completed"?"":" (incomplete)");long nodes=0,edges=0;foreach(var row in (List<string[]>)r["Nodes"])nodes+=long.Parse(row[1]);foreach(var row in (List<string[]>)r["Edges"])edges+=long.Parse(row[1]);summary.Text=nodes.ToString("N0")+" objects · "+edges.ToString("N0")+" relationships · "+state.Findings.ToString("N0")+" saved candidates · "+analysisStatus+" · Path rules "+(state.PathRules??"none")+" / current "+state.CurrentPathRules;var snapshot=Controls.Find("Snapshot",true);if(snapshot.Length==1)((Label)snapshot[0]).Text=indexPath+" · Updated "+File.GetLastWriteTime(indexPath).ToString("g");findNote.Text=state.Status+": "+state.StopReason;if(state.Status=="Outdated"){SetHelp("Saved findings need regeneration",state.StopReason+"\r\n\r\nOpened index: "+indexPath+"\r\n\r\nObject browsing and Routes to target use the collected graph with current rules. They remain available. Close older scanner/viewer windows after an update.");return;}BeginInvoke(new Action(delegate{LoadPage(findingPage);}));});}
+        private void LoadOverview(){Run(delegate(GraphIndex db){return db.ViewerSummary();},delegate(object result){var r=DesktopViewer.Map(result);lastSummary=r;gpoScopeCoverage=DesktopViewer.Text(r,"GpoScope")+"\r\n\r\n"+DesktopViewer.Text(r,"OwnershipScope")+"\r\n\r\n"+DesktopViewer.Text(r,"AdcsScope");if(r.ContainsKey("PrerequisiteGaps"))gpoScopeCoverage+="\r\n\r\nRecorded AD CS prerequisite gaps (first 30 of "+r["PrerequisiteGapCount"]+")\r\n"+PrerequisiteText((List<string[]>)r["PrerequisiteGaps"]);var state=(DiskAnalysisProgress)r["Analysis"];analysisStatus=state.Status=="NotStarted"?"No saved analysis":state.Status+(state.Status=="Completed"?"":" (incomplete)");long nodes=0,edges=0;foreach(var row in (List<string[]>)r["Nodes"])nodes+=long.Parse(row[1]);foreach(var row in (List<string[]>)r["Edges"])edges+=long.Parse(row[1]);summary.Text=nodes.ToString("N0")+" objects · "+edges.ToString("N0")+" relationships · "+state.Findings.ToString("N0")+" saved candidates · "+analysisStatus+" · Path rules "+(state.PathRules??"none")+" / current "+state.CurrentPathRules;var snapshot=Controls.Find("Snapshot",true);if(snapshot.Length==1)((Label)snapshot[0]).Text=indexPath+" · Updated "+File.GetLastWriteTime(indexPath).ToString("g");findNote.Text=state.Status+": "+state.StopReason;if(state.Status=="Outdated"){SetHelp("Saved findings need regeneration",state.StopReason+"\r\n\r\nOpened index: "+indexPath+"\r\n\r\nObject browsing and Routes to target use the collected graph with current rules. They remain available. Close older scanner/viewer windows after an update.");return;}BeginInvoke(new Action(delegate{LoadPage(findingPage);}));});}
         private void LoadPage(DesktopPager pager)
         {
             var cursor=ViewerJson.Map("score",pager.Score,"sequence",pager.Sequence,"after",pager.After);string query=pager.Query;
@@ -328,7 +328,7 @@ namespace BH.Native
         }
         private void OpenFinding(){var f=Selected(findings);if(f!=null)LoadRecorded(DesktopViewer.Text(DesktopViewer.Map(f["Source"]),"i"));}
         private void LoadRecorded(string id){LoadRecorded(id,false);}
-        private void LoadRecorded(string id,bool continued){Run(delegate(GraphIndex db){return db.ViewerRecordedPath(id);},delegate(object result){DisplayPath(DesktopViewer.Map(result),true,continued);});}
+        private void LoadRecorded(string id,bool continued){Run(delegate(GraphIndex db){return db.ViewerRecordedPath(id);},delegate(object result){DisplayPath(DesktopViewer.Map(result),true,continued);if(pendingScout!=null){string label=pendingScout;pendingScout=null;AskGenAi(label);}});}
         private void InspectSelected(){var n=Selected(objects);if(n!=null)Inspect(DesktopViewer.Text(n,"i"));}
         private void UseNode(Dictionary<string,object> node,bool source){if(node==null)return;(source?sourceId:targetId).Text=DesktopViewer.Text(node,"i");SetStatus((source?"Source: ":"Target: ")+DesktopViewer.Text(node,"n"),false);}
         private void Inspect(string id){Inspect(id,-1);}
@@ -410,7 +410,14 @@ namespace BH.Native
             if(saved){b.AppendLine("\r\nTriage score: "+DesktopViewer.Text(value,"Score"));foreach(string reason in (List<string>)value["Reasons"])b.AppendLine("• "+reason);}
             b.AppendLine("\r\nSelect a graph line or path step for its explanation and recommended fix.\r\n\r\n"+DesktopViewer.ChangeProcess);SetHelp("Recorded path & recommended fixes",b.ToString());UpdateButtons();
         }
-        private void AskGenAi(){var edges=new List<Dictionary<string,object>>();foreach(DataGridViewRow row in steps.Rows){var tag=row.Tag as Dictionary<string,object>;if(tag!=null&&DesktopViewer.Text(tag,"ty").Length>0)edges.Add(tag);}if(edges.Count==0){SetStatus("Open a path or a route first, then ask Scout to explain it.",true);return;}genAi.LoadEdges(edges,"Path on screen");tabs.SelectedTab=genAiPage;}
+        private void AskScoutFinding(){var f=Selected(findings);if(f==null){SetStatus("Select a finding first.",true);return;}pendingScout="Saved finding (score "+DesktopViewer.Text(f,"Score")+", "+DesktopViewer.Text(f,"HopCount")+" hops)";OpenFinding();}
+        private void PrioritizeScout(){var rows=new List<Dictionary<string,object>>();foreach(DataGridViewRow row in findings.Rows){var tag=row.Tag as Dictionary<string,object>;if(tag!=null)rows.Add(tag);}if(rows.Count==0){SetStatus("There are no saved findings on this page to prioritize.",true);return;}genAi.LoadSubject(ScoutSubjects.Findings(rows));tabs.SelectedTab=genAiPage;}
+        private void AskScoutObject(){if(selectedObject==null){SetStatus("Inspect an object first, then ask Scout about it.",true);return;}var rels=new List<Dictionary<string,object>>();foreach(DataGridViewRow row in relationships.Rows){var tag=row.Tag as Dictionary<string,object>;if(tag!=null)rels.Add(tag);}genAi.LoadSubject(ScoutSubjects.ObjectInfo(selectedObject,rels,direction.SelectedIndex==0?"incoming":"outgoing"));tabs.SelectedTab=genAiPage;}
+        private void SummarizeScout(){if(lastSummary==null){SetStatus("The overview is still loading. Try again in a moment.",true);return;}var r=lastSummary;var state=(DiskAnalysisProgress)r["Analysis"];genAi.LoadSubject(ScoutSubjects.Overview((List<string[]>)r["Nodes"],(List<string[]>)r["Edges"],state.Status,state.Findings,state.StopReason));tabs.SelectedTab=genAiPage;}
+        private static string[] SnapshotRow(GraphIndex db,GraphEdge e){string[] s=db.Node(e.Source),t=db.Node(e.Target);return new string[]{e.Source,s==null?e.Source:s[0],s==null?"":s[1],e.EdgeType,e.Target,t==null?e.Target:t[0],t==null?"":t[1]};}
+        private void CompareScout(){using(var dialog=new OpenFileDialog{Title="Choose the OLDER snapshot (its graph.sqlite) to compare this one against",Filter="Graph index (*.sqlite)|*.sqlite|All files (*.*)|*.*"}){if(dialog.ShowDialog(this)!=DialogResult.OK)return;string baseline=dialog.FileName;Run(delegate(GraphIndex db){var c=db.CompareSnapshot(baseline);var added=new List<string[]>();var removed=new List<string[]>();foreach(var e in c.AddedSample)added.Add(SnapshotRow(db,e));foreach(var e in c.RemovedSample)removed.Add(SnapshotRow(db,e));return ViewerJson.Map("c",c,"added",added,"removed",removed);},delegate(object result){var r=DesktopViewer.Map(result);var c=(SnapshotComparison)r["c"];genAi.LoadSubject(ScoutSubjects.Changes(baseline,c.AddedNodes,c.RemovedNodes,c.AddedEdges,c.RemovedEdges,c.UnchangedEdges,(List<string[]>)r["added"],(List<string[]>)r["removed"]));tabs.SelectedTab=genAiPage;});}}
+        private void AskGenAi(){AskGenAi("Path on screen");}
+        private void AskGenAi(string label){var edges=new List<Dictionary<string,object>>();foreach(DataGridViewRow row in steps.Rows){var tag=row.Tag as Dictionary<string,object>;if(tag!=null&&DesktopViewer.Text(tag,"ty").Length>0)edges.Add(tag);}if(edges.Count==0){SetStatus("Open a path or a route first, then ask Scout to explain it.",true);return;}genAi.LoadEdges(edges,label);tabs.SelectedTab=genAiPage;}
         private void ExportPlan(){if(path==null){SetStatus("Open a path before exporting its review plan.",true);return;}using(var dialog=new SaveFileDialog{Title="Export this path segment's review plan",Filter="Text review plan (*.txt)|*.txt",FileName="tessera-review-plan.txt"}){if(dialog.ShowDialog(this)!=DialogResult.OK)return;var b=new StringBuilder("Tessera review plan — displayed relationships\r\n");b.AppendLine("Source: "+DesktopViewer.Text(DesktopViewer.Map(path["Source"]),"i"));b.AppendLine("Target: "+DesktopViewer.Text(DesktopViewer.Map(path["Target"]),"i"));b.AppendLine((DesktopViewer.Flag(path,"GraphMode")?"Shortest route length: ":"Remaining chain hops: ")+DesktopViewer.Text(path,"HopCount"));b.AppendLine("Segment limited: "+DesktopViewer.Flag(path,"PathLimited"));b.AppendLine("Continue from: "+DesktopViewer.Text(path,"NextPathId"));b.AppendLine("Recorded relationships require validation. Original coverage is not stored in this index.\r\n");if(path.ContainsKey("Legs"))b.AppendLine(WaypointSummary(path));foreach(object item in (List<object>)path["Steps"])b.AppendLine(DesktopViewer.Explain(DesktopViewer.Map(item))+"\r\n--------------------\r\n");File.WriteAllText(dialog.FileName,b.ToString(),new UTF8Encoding(true));SetStatus("Exported the displayed path segment's review plan.",false);}}
     }
     internal sealed class DesktopPager
@@ -1133,6 +1140,10 @@ namespace BH.Native
     {
         public const int MaxSteps = 60;
 
+        /// <summary>Set by the viewer: the built-in guidance for a relationship type, and for a type against the kind of its target.</summary>
+        internal static Func<string, string[]> Glossary;
+        internal static Func<string, string, string[]> ContextGlossary;
+
         // The instructions never change between questions; everything that varies is in the tagged blocks of the user message.
         public const string SystemText =
             "# ROLE\n" +
@@ -1150,6 +1161,10 @@ namespace BH.Native
             "- <roles>: what the administrator says some objects are (for example Domain Controller or Workstation), from the administrator's own naming rules. Treat these as the administrator's assertion. An object with no role has an unknown type; say so rather than guessing.\n" +
             "- <glossary>: what each EDGE_TYPE means in this tool, its usual impact and its usual fix. Prefer it over your general knowledge where they differ.\n" +
             "- <limits>: what is NOT included (raw evidence, permission masks, inheritance, anything off screen). Relationships are recorded observations, not proof of effective access.\n" +
+            "- <object>: one directory object: its kind, the properties of note (flags and numbers only; names, SIDs and distinguished names are never included), and its direct relationships in the same line format as <relationships>, with the direction stated.\n" +
+            "- <findings>: a ranked list of saved candidates. Each line is: N. SOURCE --reaches--> TARGET, HOPS hop(s), score S. TARGET is a privileged object the analysis selected for review and SOURCE has a recorded chain of relationships to it. The score is a review ranking, not a measure of exploitability.\n" +
+            "- <changes>: differences between an older and a newer snapshot of the same environment: counts, and samples of relationships added and removed (same line format as <relationships>). A difference can also come from a change in collection coverage rather than in the environment; say so when it matters.\n" +
+            "- <overview>: counts for a whole snapshot (objects by kind, relationships by group, state of the saved analysis). No names are included.\n" +
             "- <task>: which sections to produce.\n\n" +
             "# RELATIONSHIP REFERENCE (general meaning of each EDGE_TYPE; the <glossary> block below each question adds this tool's own details and overrides this)\n" +
             "- MemberOf: SOURCE is a member of group TARGET and inherits what TARGET can do.\n" +
@@ -1196,6 +1211,7 @@ namespace BH.Native
             "## STEP BY STEP (one short line per relationship, numbered as in the input)\n" +
             "## RECOMMENDED FIXES (numbered, best first)\n" +
             "## CONFIDENCE AND LIMITS\n" +
+            "The task may name other sections (for example PRIORITY ORDER, WHAT CHANGED, KEY OBSERVATIONS); use exactly the section names the task gives, in the order given.\n" +
             "Use **bold** for object tokens and relationship names. Keep it under about 600 words unless the list is long.\n\n" +
             "# FORMAT EXAMPLE (invented data to show the shape only; never reuse its content)\n" +
             "## SUMMARY\n" +
@@ -1378,6 +1394,60 @@ namespace BH.Native
         private static string Get(Dictionary<string, object> row, string key)
         {
             object v; return row.TryGetValue(key, out v) && v != null ? Convert.ToString(v, CultureInfo.InvariantCulture) : "";
+        }
+
+        /// <summary>
+        /// Builds a question that is not a plain list of relationships (an object, a ranked list of findings, a snapshot comparison, an overview).
+        /// The data builder receives a labelling function (id, name, kind) that returns a token or a safe name, and a list to collect relationship types for the glossary.
+        /// </summary>
+        public static GenAiPrompt BuildFree(string scope, string blockName, Func<Func<string, string, string, string>, List<string>, string> data, bool hideNames, string taskText, List<GenAiRole> roles, int items)
+        {
+            var p = new GenAiPrompt { Steps = items };
+            var labelOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var counters = new Dictionary<string, int>();
+            var roleOrder = new List<string>(); var roleOf = new Dictionary<string, GenAiRole>(StringComparer.OrdinalIgnoreCase);
+            var withoutRole = new List<string>();
+            Func<string, string, string, string> label = delegate(string id, string name, string kind)
+            {
+                if (string.IsNullOrEmpty(id)) id = name ?? "";
+                string existing;
+                if (labelOf.TryGetValue(id, out existing)) return existing;
+                string display = string.IsNullOrEmpty(name) ? id : name, result;
+                if (hideNames)
+                {
+                    string word = KindWord(kind); int n; counters.TryGetValue(word, out n); n++; counters[word] = n;
+                    result = word + "-" + n; p.tokenToName[result] = display;
+                }
+                else result = Safe(display, 120);
+                labelOf[id] = result;
+                GenAiRole hit = null;
+                if (roles != null) foreach (GenAiRole r in roles) if (r.Matches(name ?? "", kind ?? "")) { hit = r; break; }
+                if (hit != null) { roleOf[id] = hit; roleOrder.Add(id); } else withoutRole.Add(result);
+                return result;
+            };
+            var types = new List<string>();
+            string dataText = data(label, types);
+            var glossaryText = new StringBuilder();
+            foreach (string type in types)
+            {
+                string[] h = Glossary == null ? null : Glossary(type);
+                if (h == null || h.Length < 7) { glossaryText.Append("- ").Append(type).Append(": (no description available in this tool)\n"); continue; }
+                glossaryText.Append("- ").Append(type).Append(": ").Append(Clip(h[1], 260)).Append(" Impact: ").Append(Clip(h[3], 260)).Append(" Usual fix: ").Append(Clip(h[6], 260)).Append('\n');
+            }
+            var roleText = new StringBuilder();
+            foreach (string id in roleOrder) roleText.Append("- ").Append(labelOf[id]).Append(": ").Append(Safe(roleOf[id].Role, 80)).Append(roleOf[id].Note.Length > 0 ? ". Note from the administrator: " + Safe(roleOf[id].Note, 200) : "").Append('\n');
+            p.RolesMatched = roleOrder.Count;
+            if (roleOrder.Count > 0 && withoutRole.Count > 0) roleText.Append("- No role rule matched: ").Append(string.Join(", ", withoutRole.ToArray())).Append(" (type unknown)\n");
+            var user = new StringBuilder();
+            user.Append("<scope>\n").Append(scope).Append('\n').Append(hideNames ? "Object names are hidden: each token such as USER-1 is one specific object and always means the same object.\n" : "Object names are included.\n").Append("</scope>\n\n");
+            user.Append('<').Append(blockName).Append(">\n").Append(dataText).Append("</").Append(blockName).Append(">\n\n");
+            if (labelOf.Count > 0) user.Append("<roles>\n").Append(roleText.Length > 0 ? roleText.ToString() : (roles != null && roles.Count > 0 ? "The administrator has " + roles.Count + " naming rule(s) for device roles, but none matched an object here. Every object's type is unknown unless its kind says otherwise.\n" : "No roles were provided. Every object's type is unknown unless its kind says otherwise.\n")).Append("</roles>\n\n");
+            if (glossaryText.Length > 0) user.Append("<glossary>\n").Append(glossaryText).Append("</glossary>\n\n");
+            user.Append("<limits>\nNot included: raw evidence, permission masks, inheritance details, SIDs and distinguished names, and anything not shown. Recorded relationships are observations that need verification; they are not proof of effective access.\n</limits>\n\n");
+            user.Append("<task>\n").Append(taskText).Append(" Follow the output format in your instructions. Do not end with a question or an offer of more help.\n</task>");
+            p.User = user.ToString();
+            p.System = SystemText;
+            return p;
         }
 
         /// <summary>Swaps real names the user typed for their tokens, so a follow-up question does not leak names.</summary>
@@ -1643,6 +1713,266 @@ namespace BH.Native
                 }
                 o.Append(Esc(c.ToString())); i++;
             }
+        }
+    }
+
+    /// <summary>One thing Scout can be asked about: how to show it, which tasks it supports, and how to build the question.</summary>
+    internal sealed class ScoutSubject
+    {
+        public string Title = "", Display = "", Unit = "items";
+        public string[] Tasks = new string[0];
+        public Func<bool, int, GenAiPrompt> Build;
+        public Func<ScoutSubject> Refresh;     // rebuilds the subject (for example after the device roles changed)
+    }
+
+    internal static class ScoutSubjects
+    {
+        private static string Show(string name, string kind)
+        {
+            string role = "";
+            foreach (GenAiRole r in GenAiRoles.Items) if (r.Matches(name, kind ?? "")) { role = r.Role; break; }
+            string roleText = role.Length > 0 ? "role: " + role : (GenAiRoles.Items.Count > 0 ? "no role rule matched" : "");
+            string extra = (kind ?? "").Length > 0 || roleText.Length > 0 ? " (" + kind + ((kind ?? "").Length > 0 && roleText.Length > 0 ? ", " : "") + roleText + ")" : "";
+            return name + extra;
+        }
+
+        private static string Text(Dictionary<string, object> map, string key)
+        {
+            object v; return map != null && map.TryGetValue(key, out v) && v != null ? Convert.ToString(v, CultureInfo.InvariantCulture) : "";
+        }
+
+        private static string NameOf(Dictionary<string, object> edge, string side)
+        {
+            string name = Text(edge, side + "n");
+            return name.Length > 0 ? name : Text(edge, side);
+        }
+
+        // ---------------- a path or a set of relationships
+        public static ScoutSubject Path(List<Dictionary<string, object>> edges, string what)
+        {
+            ScoutSubject made = PathCore(edges, what);
+            made.Refresh = delegate { return Path(edges, what); };
+            return made;
+        }
+
+        private static ScoutSubject PathCore(List<Dictionary<string, object>> edges, string what)
+        {
+            var shown = new List<Dictionary<string, object>>();
+            foreach (var edge in edges) if (Text(edge, "ty").Length > 0) shown.Add(edge);
+            var sb = new StringBuilder();
+            if (shown.Count == 0) sb.Append("NOTHING LOADED. Use Ask Scout on the Paths tab, or on Objects and relationships, to load a path or a relationship here.");
+            else
+            {
+                bool chain = shown.Count > 1;
+                for (int i = 0; i + 1 < shown.Count; i++) if (!string.Equals(Text(shown[i], "t"), Text(shown[i + 1], "s"), StringComparison.OrdinalIgnoreCase)) chain = false;
+                sb.Append("EXPLAINING: ").Append(what.Length > 0 ? what : "selection").Append(" - ");
+                if (chain) { sb.Append(NameOf(shown[0], "s")); foreach (var edge in shown) sb.Append("  ->  ").Append(NameOf(edge, "t")); sb.Append("\r\n"); }
+                else sb.Append(shown.Count).Append(shown.Count == 1 ? " relationship" : " relationships (not one chain)").Append("\r\n");
+                int n = 0;
+                foreach (var edge in shown)
+                {
+                    n++;
+                    sb.Append(n).Append(". ").Append(Show(NameOf(edge, "s"), GenAiPrompt.KindOfSide(edge, "s"))).Append("  --[").Append(Text(edge, "ty")).Append("]-->  ").Append(Show(NameOf(edge, "t"), GenAiPrompt.KindOfSide(edge, "t")));
+                    if (n > GenAiPrompt.MaxSteps) sb.Append("   (not sent: only the first " + GenAiPrompt.MaxSteps + " are sent)");
+                    sb.Append("\r\n");
+                }
+            }
+            return new ScoutSubject
+            {
+                Title = what, Display = sb.ToString(), Unit = "relationships", Tasks = GenAiPrompt.Tasks,
+                Build = delegate(bool hide, int task) { return GenAiPrompt.Build(edges, hide, task, GenAiPrompt.Glossary, GenAiRoles.Items, GenAiPrompt.ContextGlossary); }
+            };
+        }
+
+        private static string RelLine(Func<string, string, string, string> label, Dictionary<string, object> e, List<string> types)
+        {
+            string type = Text(e, "ty"); if (type.Length > 0 && !types.Contains(type)) types.Add(type);
+            string sk = GenAiPrompt.KindOfSide(e, "s"), tk = GenAiPrompt.KindOfSide(e, "t");
+            return label(Text(e, "s"), Text(e, "sn"), sk) + (sk.Length > 0 ? " (" + sk + ")" : "") + "  --[" + type + "]-->  " + label(Text(e, "t"), Text(e, "tn"), tk) + (tk.Length > 0 ? " (" + tk + ")" : "");
+        }
+
+        // ---------------- a ranked page of saved findings
+        public static ScoutSubject Findings(List<Dictionary<string, object>> rows)
+        {
+            ScoutSubject made = FindingsCore(rows);
+            made.Refresh = delegate { return Findings(rows); };
+            return made;
+        }
+
+        private static ScoutSubject FindingsCore(List<Dictionary<string, object>> rows)
+        {
+            var sb = new StringBuilder("SAVED FINDINGS PAGE - " + rows.Count + " candidates, highest score first\r\n");
+            int n = 0;
+            foreach (var row in rows)
+            {
+                n++;
+                var src = row.ContainsKey("Source") ? row["Source"] as Dictionary<string, object> : null; var tgt = row.ContainsKey("Target") ? row["Target"] as Dictionary<string, object> : null;
+                sb.Append(n).Append(". ").Append(Show(Text(src, "n"), "")).Append("  reaches  ").Append(Show(Text(tgt, "n"), "")).Append("   (").Append(Text(row, "HopCount")).Append(" hops, score ").Append(Text(row, "Score")).Append(")\r\n");
+            }
+            return new ScoutSubject
+            {
+                Title = "Saved findings (this page)", Display = sb.ToString(), Unit = "candidates",
+                Tasks = new string[] { "Prioritize these findings and explain the top ones" },
+                Build = delegate(bool hide, int task)
+                {
+                    return GenAiPrompt.BuildFree("This is a ranked page of " + rows.Count + " saved candidates from one snapshot.", "findings",
+                        delegate(Func<string, string, string, string> label, List<string> types)
+                        {
+                            var o = new StringBuilder(); int i = 0;
+                            foreach (var row in rows)
+                            {
+                                i++;
+                                var src = row.ContainsKey("Source") ? row["Source"] as Dictionary<string, object> : null; var tgt = row.ContainsKey("Target") ? row["Target"] as Dictionary<string, object> : null;
+                                o.Append(i).Append(". ").Append(label(Text(src, "i"), Text(src, "n"), "")).Append("  --reaches-->  ").Append(label(Text(tgt, "i"), Text(tgt, "n"), "")).Append(", ").Append(Text(row, "HopCount")).Append(" hop(s), score ").Append(Text(row, "Score")).Append('\n');
+                            }
+                            return o.ToString();
+                        }, hide,
+                        "Prioritize these findings. Produce SUMMARY (what the page shows overall), PRIORITY ORDER (numbered, most urgent first, one line of reasoning each; say where the score ranking and your judgment differ and why), PATTERNS (what the top items have in common), RECOMMENDED FIRST ACTIONS (the few changes that would remove the most risk) and CONFIDENCE AND LIMITS.",
+                        GenAiRoles.Items, rows.Count);
+                }
+            };
+        }
+
+        // ---------------- one object with its relationships
+        private static bool NoteWorthy(string key, object value)
+        {
+            string k = key.ToLowerInvariant();
+            if (k.Contains("dn") || k.Contains("sid") || k.Contains("guid") || k == "id" || k.Contains("name") || k.Contains("dns") || k.Contains("spn") || k.Contains("mail") || k.Contains("description")) return false;
+            if (value is bool || value is double) return true;
+            return k == "os" || k == "usertype" || k == "sptype" || k == "gposomtype" || k == "visibility" || k == "gueststate";
+        }
+
+        private static string Properties(string record)
+        {
+            var list = new List<string>();
+            try
+            {
+                var map = GenAiJson.Obj(GenAiJson.Parse(record));
+                if (map != null)
+                    foreach (var pair in map)
+                        if (NoteWorthy(pair.Key, pair.Value))
+                            list.Add(pair.Key + "=" + (pair.Value is bool ? ((bool)pair.Value ? "true" : "false") : Convert.ToString(pair.Value, CultureInfo.InvariantCulture)));
+            }
+            catch (Exception) { }
+            if (list.Count > 40) list = list.GetRange(0, 40);
+            return list.Count == 0 ? "none recorded" : string.Join("; ", list.ToArray());
+        }
+
+        public static ScoutSubject ObjectInfo(Dictionary<string, object> obj, List<Dictionary<string, object>> relationships, string direction)
+        {
+            ScoutSubject made = ObjectCore(obj, relationships, direction);
+            made.Refresh = delegate { return ObjectInfo(obj, relationships, direction); };
+            return made;
+        }
+
+        private static ScoutSubject ObjectCore(Dictionary<string, object> obj, List<Dictionary<string, object>> relationships, string direction)
+        {
+            string id = Text(obj, "i"), name = Text(obj, "n"), kind = Text(obj, "t"); if (kind == "?") kind = "";
+            string props = Properties(Text(obj, "Record"));
+            var sb = new StringBuilder("OBJECT: " + Show(name, kind) + "\r\nProperties of note: " + props + "\r\n" + direction.ToUpperInvariant() + " RELATIONSHIPS (" + relationships.Count + " shown)\r\n");
+            int n = 0;
+            foreach (var e in relationships)
+            {
+                n++;
+                sb.Append(n).Append(". ").Append(Show(NameOf(e, "s"), GenAiPrompt.KindOfSide(e, "s"))).Append("  --[").Append(Text(e, "ty")).Append("]-->  ").Append(Show(NameOf(e, "t"), GenAiPrompt.KindOfSide(e, "t"))).Append("\r\n");
+            }
+            return new ScoutSubject
+            {
+                Title = "Object", Display = sb.ToString(), Unit = "relationships",
+                Tasks = new string[] { "Explain this object's exposure and recommend fixes", "Explain this object's exposure only", "Recommend fixes only" },
+                Build = delegate(bool hide, int task)
+                {
+                    string want = task == 1 ? "Explain this object's exposure. Produce SUMMARY, WHY IT MATTERS (what can reach this object and what it can reach), OBJECT NOTES and CONFIDENCE AND LIMITS."
+                        : task == 2 ? "Recommend how to reduce this object's exposure. Produce SUMMARY, RECOMMENDED FIXES and CONFIDENCE AND LIMITS."
+                        : "Explain this object's exposure, then recommend fixes. Produce SUMMARY, WHY IT MATTERS (what can reach this object and what it can reach), OBJECT NOTES, RECOMMENDED FIXES and CONFIDENCE AND LIMITS.";
+                    return GenAiPrompt.BuildFree("This is one object and " + relationships.Count + " of its " + direction + " relationships (the list may not be complete).", "object",
+                        delegate(Func<string, string, string, string> label, List<string> types)
+                        {
+                            var o = new StringBuilder();
+                            o.Append("Object: ").Append(label(id, name, kind)).Append(kind.Length > 0 ? " (" + kind + ")" : "").Append('\n');
+                            o.Append("Properties of note: ").Append(props).Append('\n');
+                            o.Append("Relationships, ").Append(direction).Append(" (").Append(relationships.Count).Append(" shown):\n");
+                            int i = 0;
+                            foreach (var e in relationships) { i++; if (i > GenAiPrompt.MaxSteps) break; o.Append(i).Append(". ").Append(RelLine(label, e, types)).Append('\n'); }
+                            return o.ToString();
+                        }, hide, want, GenAiRoles.Items, relationships.Count);
+                }
+            };
+        }
+
+        // ---------------- a comparison between two snapshots
+        /// <param name="added">Sample rows: source id, source name, source kind, type, target id, target name, target kind.</param>
+        public static ScoutSubject Changes(string baseline, long addedNodes, long removedNodes, long addedEdges, long removedEdges, long unchangedEdges, List<string[]> added, List<string[]> removed)
+        {
+            ScoutSubject made = ChangesCore(baseline, addedNodes, removedNodes, addedEdges, removedEdges, unchangedEdges, added, removed);
+            made.Refresh = delegate { return Changes(baseline, addedNodes, removedNodes, addedEdges, removedEdges, unchangedEdges, added, removed); };
+            return made;
+        }
+
+        private static ScoutSubject ChangesCore(string baseline, long addedNodes, long removedNodes, long addedEdges, long removedEdges, long unchangedEdges, List<string[]> added, List<string[]> removed)
+        {
+            var sb = new StringBuilder("SNAPSHOT COMPARISON against " + baseline + "\r\nObjects: " + addedNodes + " added, " + removedNodes + " removed. Relationships: " + addedEdges + " added, " + removedEdges + " removed, " + unchangedEdges + " unchanged.\r\n");
+            Action<string, List<string[]>> dump = delegate(string title, List<string[]> rows)
+            {
+                sb.Append("\r\n" + title + " (sample of " + rows.Count + ")\r\n"); int n = 0;
+                foreach (string[] r in rows) { n++; sb.Append(n).Append(". ").Append(Show(r[1], r[2])).Append("  --[").Append(r[3]).Append("]-->  ").Append(Show(r[5], r[6])).Append("\r\n"); }
+            };
+            dump("ADDED RELATIONSHIPS", added); dump("REMOVED RELATIONSHIPS", removed);
+            return new ScoutSubject
+            {
+                Title = "Snapshot comparison", Display = sb.ToString(), Unit = "sampled changes",
+                Tasks = new string[] { "Explain what changed and what to do first" },
+                Build = delegate(bool hide, int task)
+                {
+                    return GenAiPrompt.BuildFree("This compares the current snapshot with an older one of the same environment. Counts are complete; the relationship lists are samples.", "changes",
+                        delegate(Func<string, string, string, string> label, List<string> types)
+                        {
+                            var o = new StringBuilder();
+                            o.Append("Objects: ").Append(addedNodes).Append(" added, ").Append(removedNodes).Append(" removed.\n");
+                            o.Append("Relationships: ").Append(addedEdges).Append(" added, ").Append(removedEdges).Append(" removed, ").Append(unchangedEdges).Append(" unchanged.\n");
+                            Action<string, List<string[]>> part = delegate(string title, List<string[]> rows)
+                            {
+                                o.Append(title).Append(" (sample of ").Append(rows.Count).Append("):\n"); int i = 0;
+                                foreach (string[] r in rows)
+                                {
+                                    i++; if (!types.Contains(r[3])) types.Add(r[3]);
+                                    o.Append(i).Append(". ").Append(label(r[0], r[1], r[2])).Append(r[2].Length > 0 ? " (" + r[2] + ")" : "").Append("  --[").Append(r[3]).Append("]-->  ").Append(label(r[4], r[5], r[6])).Append(r[6].Length > 0 ? " (" + r[6] + ")" : "").Append('\n');
+                                }
+                            };
+                            part("Added relationships", added); part("Removed relationships", removed);
+                            return o.ToString();
+                        }, hide,
+                        "Explain what changed. Produce SUMMARY (is the exposure better, worse or mixed, and why), WHAT CHANGED (grouped by relationship type, noting anything that touches privileged objects), WHAT TO DO FIRST and CONFIDENCE AND LIMITS (including whether a change in collection coverage could explain the differences).",
+                        GenAiRoles.Items, added.Count + removed.Count);
+                }
+            };
+        }
+
+        // ---------------- the whole snapshot at a glance (counts only, no names)
+        public static ScoutSubject Overview(List<string[]> nodeCounts, List<string[]> edgeCounts, string analysisStatus, long savedFindings, string note)
+        {
+            var o = new StringBuilder();
+            o.Append("Objects by kind: ");
+            long objects = 0; foreach (string[] r in nodeCounts) { o.Append(r[0]).Append('=').Append(r[1]).Append("; "); long v; if (long.TryParse(r[1], out v)) objects += v; }
+            o.Append("(total ").Append(objects).Append(")\n");
+            o.Append("Relationships by group: ");
+            long edges = 0; foreach (string[] r in edgeCounts) { o.Append(r[0]).Append('=').Append(r[1]).Append("; "); long v; if (long.TryParse(r[1], out v)) edges += v; }
+            o.Append("(total ").Append(edges).Append(")\n");
+            o.Append("Saved analysis: ").Append(analysisStatus).Append("; ").Append(savedFindings).Append(" saved candidate paths.\n");
+            if (!string.IsNullOrEmpty(note)) o.Append("Analysis note: ").Append(note.Replace("\r", " ").Replace("\n", " ")).Append('\n');
+            string text = o.ToString();
+            return new ScoutSubject
+            {
+                Title = "Report overview", Display = "REPORT OVERVIEW\r\n" + text.Replace("\n", "\r\n"), Unit = "figures",
+                Tasks = new string[] { "Summarize this report for a briefing" },
+                Build = delegate(bool hide, int task)
+                {
+                    return GenAiPrompt.BuildFree("This is a summary of one directory snapshot and its saved analysis.", "overview",
+                        delegate(Func<string, string, string, string> label, List<string> types) { return text; }, hide,
+                        "Summarize this snapshot for a briefing. Produce SUMMARY (two or three sentences), KEY OBSERVATIONS (what the counts suggest about the environment's size and structure, and anything unusual), WHAT TO REVIEW FIRST (given the saved analysis state) and CONFIDENCE AND LIMITS (counts alone cannot show whether anything is exposed).",
+                        GenAiRoles.Items, nodeCounts.Count + edgeCounts.Count);
+                }
+            };
         }
     }
 
@@ -2159,8 +2489,7 @@ namespace BH.Native
     {
         private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81),
             Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202), Accent = Color.FromArgb(121, 179, 255), Danger = Color.FromArgb(255, 135, 150), Good = Color.FromArgb(119, 217, 187);
-        private List<Dictionary<string, object>> edges = new List<Dictionary<string, object>>();
-        private string source = "";
+        private ScoutSubject current = ScoutSubjects.Path(new List<Dictionary<string, object>>(), "");
         private readonly TextBox preview, ask, subject;
         private readonly RichTextBox answer;
         private readonly ComboBox task;
@@ -2174,10 +2503,13 @@ namespace BH.Native
         private string rawAnswer = "";
         private readonly List<string[]> history = new List<string[]>();
         private string transcript = "";
+        private bool settingTasks;
 
         public GenAiPanel()
         {
             GenAiSession.LoadSettings();
+            GenAiPrompt.Glossary = delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; };
+            GenAiPrompt.ContextGlossary = delegate(string type, string kind) { string[] c; return DesktopViewer.ContextGuide.TryGetValue(type + "|" + kind, out c) ? c : null; };
             Name = "GenAiPanel"; Dock = DockStyle.Fill; BackColor = PanelColor; ForeColor = Ink;
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = PanelColor, Padding = new Padding(8, 6, 8, 6) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
@@ -2202,7 +2534,7 @@ namespace BH.Native
             task = new ComboBox { Name = "GenAiTask", DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Bg, ForeColor = Ink, Width = 270, Margin = new Padding(4, 6, 4, 4) };
             foreach (string t in GenAiPrompt.Tasks) task.Items.Add(t);
             task.SelectedIndex = Math.Max(0, Math.Min(GenAiSession.Task, task.Items.Count - 1));
-            task.SelectedIndexChanged += delegate { GenAiSession.Task = task.SelectedIndex; GenAiSession.SaveSettings(); Rebuild(); };
+            task.SelectedIndexChanged += delegate { if (!settingTasks) { if (current.Tasks == GenAiPrompt.Tasks) { GenAiSession.Task = task.SelectedIndex; GenAiSession.SaveSettings(); } Rebuild(); } };
             send = Flat("Send", "GenAiSend"); send.Click += delegate { Send(); };
             cancel = Flat("Cancel", "GenAiCancel"); cancel.Enabled = false; cancel.Click += delegate { if (client != null) client.Cancel(); };
             copy = Flat("Copy answer", "GenAiCopy"); copy.Click += delegate { if (answer.Text.Length > 0) Clipboard.SetText(answer.Text); };
@@ -2276,79 +2608,38 @@ namespace BH.Native
         /// <summary>Shows the relationships to explain and switches the prompt to them.</summary>
         public void LoadEdges(List<Dictionary<string, object>> items, string what)
         {
-            edges = items ?? new List<Dictionary<string, object>>(); source = what ?? "";
+            LoadSubject(ScoutSubjects.Path(items ?? new List<Dictionary<string, object>>(), what ?? ""));
+        }
+
+        /// <summary>Loads anything Scout can be asked about: a path, a finding list, an object, a snapshot comparison, an overview.</summary>
+        public void LoadSubject(ScoutSubject subjectToLoad)
+        {
+            current = subjectToLoad;
+            settingTasks = true;
+            task.Items.Clear();
+            foreach (string t in current.Tasks) task.Items.Add(t);
+            task.SelectedIndex = current.Tasks == GenAiPrompt.Tasks ? Math.Max(0, Math.Min(GenAiSession.Task, task.Items.Count - 1)) : 0;
+            settingTasks = false;
             rawAnswer = ""; answer.Clear(); history.Clear(); transcript = "";
             Rebuild();
-            SetStatus(prompt.Steps + " relationships ready. " + (GenAiSession.Ready ? "Press Send." : "Press Setup to connect Scout first."), false);
+            SetStatus(prompt.Steps + " " + current.Unit + " ready. " + (GenAiSession.Ready ? "Press Send." : "Press Setup to connect Scout first."), false);
         }
 
         private void Rebuild()
         {
             GenAiRoles.EnsureLoaded();
-            RenderSubject();
-            prompt = GenAiPrompt.Build(edges, GenAiSession.HideNames, task.SelectedIndex, delegate(string type) { string[] h; return DesktopViewer.Guide.TryGetValue(type, out h) ? h : null; }, GenAiRoles.Items,
-                delegate(string type, string kind) { string[] c; return DesktopViewer.ContextGuide.TryGetValue(type + "|" + kind, out c) ? c : null; });
+            current = ReShow(current);
+            subject.Text = current.Display; subject.SelectionStart = 0; subject.ScrollToCaret();
+            prompt = current.Build(GenAiSession.HideNames, Math.Max(0, task.SelectedIndex));
             string custom = GenAiPrompts.Resolve(GenAiSession.PromptName);
             if (custom != null) prompt.System = custom;
             preview.Text = "SYSTEM INSTRUCTIONS" + (custom != null ? " (custom prompt: " + GenAiSession.PromptName + ")" : " (built-in)") + "\r\n" + prompt.System.Replace("\n", "\r\n") + "\r\n\r\nQUESTION\r\n" + prompt.User.Replace("\n", "\r\n");
             int approx = (prompt.System.Length + prompt.User.Length) / 4;
-            context.Text = (source.Length > 0 ? source + ": " : "") + prompt.Steps + " relationships, about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (GenAiSession.HideNames ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + prompt.RolesMatched + " object(s) matched your " + GenAiRoles.Items.Count + " role rule(s)" : ", no device role rules set");
+            context.Text = (current.Title.Length > 0 ? current.Title + ": " : "") + prompt.Steps + " " + current.Unit + ", about " + approx + " tokens" + (prompt.Truncated ? " (shortened to " + GenAiPrompt.MaxSteps + ")" : "") + (GenAiSession.HideNames ? ", names hidden" : ", names included") + (GenAiRoles.Items.Count > 0 ? ", " + prompt.RolesMatched + " object(s) matched your " + GenAiRoles.Items.Count + " role rule(s)" : ", no device role rules set");
         }
 
-        private static string NameOf(Dictionary<string, object> edge, string side)
-        {
-            object v; string name = edge.TryGetValue(side + "n", out v) && v != null ? Convert.ToString(v) : "";
-            if (name.Length == 0) name = edge.TryGetValue(side, out v) && v != null ? Convert.ToString(v) : "";
-            return name;
-        }
-
-        private static string RoleOf(string name, string kind)
-        {
-            foreach (GenAiRole r in GenAiRoles.Items) if (r.Matches(name, kind)) return r.Role;
-            return "";
-        }
-
-        private static string Describe(Dictionary<string, object> edge, string side)
-        {
-            string name = NameOf(edge, side), kind = GenAiPrompt.KindOfSide(edge, side), role = RoleOf(name, kind);
-            string roleText = role.Length > 0 ? "role: " + role : (GenAiRoles.Items.Count > 0 ? "no role rule matched" : "");
-            string extra = kind.Length > 0 || roleText.Length > 0 ? " (" + kind + (kind.Length > 0 && roleText.Length > 0 ? ", " : "") + roleText + ")" : "";
-            return name + extra;
-        }
-
-        /// <summary>Shows the path being explained, with real names, so there is no doubt what the question is about.</summary>
-        private void RenderSubject()
-        {
-            var sb = new StringBuilder();
-            var shown = new List<Dictionary<string, object>>();
-            foreach (var edge in edges) { object ty; if (edge.TryGetValue("ty", out ty) && ty != null && Convert.ToString(ty).Length > 0) shown.Add(edge); }
-            if (shown.Count == 0)
-            {
-                subject.Text = "NOTHING LOADED. Use Ask Scout on the Paths tab, or on Objects and relationships, to load a path or a relationship here.";
-                return;
-            }
-            bool chain = shown.Count > 1;
-            for (int i = 0; i + 1 < shown.Count; i++) { object t, s2; shown[i].TryGetValue("t", out t); shown[i + 1].TryGetValue("s", out s2); if (!string.Equals(Convert.ToString(t), Convert.ToString(s2), StringComparison.OrdinalIgnoreCase)) chain = false; }
-            sb.Append("EXPLAINING: ").Append(source.Length > 0 ? source : "selection").Append(" - ");
-            if (chain)
-            {
-                sb.Append(NameOf(shown[0], "s"));
-                foreach (var edge in shown) sb.Append("  ->  ").Append(NameOf(edge, "t"));
-                sb.Append("\r\n");
-            }
-            else sb.Append(shown.Count).Append(shown.Count == 1 ? " relationship" : " relationships (not one chain)").Append("\r\n");
-            int n = 0;
-            foreach (var edge in shown)
-            {
-                n++;
-                object ty; edge.TryGetValue("ty", out ty);
-                sb.Append(n).Append(". ").Append(Describe(edge, "s")).Append("  --[").Append(Convert.ToString(ty)).Append("]-->  ").Append(Describe(edge, "t"));
-                if (n > GenAiPrompt.MaxSteps) sb.Append("   (not sent: only the first " + GenAiPrompt.MaxSteps + " are sent)");
-                sb.Append("\r\n");
-            }
-            subject.Text = sb.ToString();
-            subject.SelectionStart = 0; subject.ScrollToCaret();
-        }
+        // The roles shown beside each name can change in Setup, so the subject text is rebuilt from its source each time.
+        private ScoutSubject ReShow(ScoutSubject subjectNow) { return subjectNow.Refresh != null ? subjectNow.Refresh() : subjectNow; }
 
         private void Post(Action action)
         {
@@ -2366,7 +2657,7 @@ namespace BH.Native
         private void Send()
         {
             if (worker != null && worker.IsAlive) return;
-            if (prompt.Steps == 0) { SetStatus("Nothing to explain yet. Open a path or select a relationship, then choose Ask Scout.", true); return; }
+            if (prompt.Steps == 0) { SetStatus("Nothing to explain yet. Use an Ask Scout button on the Paths, Objects or Saved findings tab.", true); return; }
             if ((prompt.System.Length + prompt.User.Length) / 4 > 20000) { SetStatus("The question is too large for one request. Choose a shorter path.", true); return; }
             if (!EnsureReady()) return;
             history.Clear(); history.Add(new string[] { "system", prompt.System }); history.Add(new string[] { "user", prompt.User });

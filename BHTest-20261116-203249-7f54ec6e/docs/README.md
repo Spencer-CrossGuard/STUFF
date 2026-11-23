@@ -330,6 +330,13 @@ Read [PATH-PARITY.md](PATH-PARITY.md) for the source comparison, validation, and
 
 The viewer has a **Scout** tab. On the Paths tab, **Ask Scout** loads the path or route currently shown; on Objects & relationships, **Ask Scout** loads the selected relationship. Scout explains it in plain language and recommends fixes, using the relationship glossary built into the viewer. Scout connects only to GenAI.mil.
 
+Scout can be asked about five things:
+* **A path or route** (Paths tab, **Ask Scout**) and **a relationship** (Objects and relationships tab, **Ask Scout**).
+* **A saved finding** (Saved findings tab, **Ask Scout about this finding**): opens the finding's recorded path and explains it with the finding's score and hop count.
+* **A page of findings** (**Prioritize this page with Scout**): puts the candidates on screen in priority order, with reasons, common patterns and the few changes that would remove the most risk.
+* **An object** (Objects and relationships tab, **Ask Scout about this object**): the object's properties of note (flags and numbers only; never names, SIDs or distinguished names) and the relationships currently listed, in the direction you chose.
+* **The report** (**Summarize report with Scout**) and **a snapshot comparison** (**Compare snapshot with Scout...**, which asks for an older `graph.sqlite` and compares counts and samples of added and removed relationships). The report summary sends counts only.
+
 **Scout setup** (the **Setup...** button on the tab) holds every setting:
 * **Connection.** The service address is fixed in the program to `https://api.genai.mil`; there is no field, setting or file that changes it, and the code refuses anything that is not an https `.mil` address. Type your API key and press **Connect**. Connect saves the key for this viewer session (memory only, never written to disk), asks the service for its model list, and fills the Model box. That one call also proves the key works. A rejected key is forgotten. **Disconnect** removes the key from memory.
 * **Model.** The list comes from the service; no model names are built into the program. If the service reports a lane and credit multipliers they are shown and used for the credit count; for a model with no cost information the count assumes 1x in and 2x out so credits are never under-reported.

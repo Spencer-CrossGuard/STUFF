@@ -839,7 +839,8 @@ namespace BH.Native
             new Info { Id = "gemini-3.5-flash-withtools", Lane = "Standard", In = 1, Out = 1 },
             new Info { Id = "gemini-3.7-flash-withtools", Lane = "Standard", In = 1, Out = 1 },
             new Info { Id = "gemini-3.8-flash-withtools", Lane = "Standard", In = 1, Out = 2 },
-            new Info { Id = "gemini-4-argon-withtools", Lane = "Standard", In = 1, Out = 2 }
+            new Info { Id = "gemini-4-argon-withtools", Lane = "Standard", In = 1, Out = 2 },
+            new Info { Id = "gemini-4-hydrogen-withtools", Lane = "Standard", In = 1, Out = 2 }
         };
         public static Info Find(string id)
         {
@@ -849,14 +850,16 @@ namespace BH.Native
         public static string Describe(string id)
         {
             Info info = Find(id);
-            if (info == null) return "Unknown model: cost not estimated here. Embedding models cannot be used for this.";
+            if (info == null) return "Model not in the built-in list: credits are counted as Standard lane (1x in, 2x out) to be safe. Embedding models cannot be used for this.";
             if (info.Lane == "Assist") return "Assist lane: 0 credits (free), still subject to the request and token limits. Tool definitions are ignored, which this does not need.";
             return "Standard lane: " + info.In + "x per prompt token, " + info.Out + "x per answer token, drawn from the 2,000,000 credits per 24 hours.";
         }
         public static long Credits(string id, int promptTokens, int completionTokens)
         {
             Info info = Find(id);
-            return info == null ? 0 : (long)promptTokens * info.In + (long)completionTokens * info.Out;
+            // A model that is not in the list is counted as Standard 1x in, 2x out, so credits are never under-reported.
+            int multiplierIn = info == null ? 1 : info.In, multiplierOut = info == null ? 2 : info.Out;
+            return (long)promptTokens * multiplierIn + (long)completionTokens * multiplierOut;
         }
     }
 
@@ -2027,11 +2030,17 @@ namespace BH.Native
                         if (result.Status == 401 || result.Status == 403) { GenAiSession.Forget(); RefreshKeyState(); }
                         return;
                     }
-                    GenAiSession.Credits += GenAiModels.Credits(chosen, result.PromptTokens, result.CompletionTokens);
+                    bool estimated = false; int tokensIn = result.PromptTokens, tokensOut = result.CompletionTokens;
+                    if (tokensIn == 0 && tokensOut == 0)
+                    {
+                        int chars = 0; foreach (string[] turn in turns) chars += turn[1].Length;
+                        tokensIn = chars / 4; tokensOut = (result.Text ?? "").Length / 4; estimated = true;
+                    }
+                    GenAiSession.Credits += GenAiModels.Credits(chosen, tokensIn, tokensOut);
                     history.Add(new string[] { "assistant", result.Text });
                     transcript += GenAiMarkdown.TrimFollowUp(currentPrompt.Restore(result.Text));
                     ShowAnswer("");
-                    SetStatus("Done. Tokens in " + result.PromptTokens + ", out " + result.CompletionTokens + ". Credits used in this session: " + GenAiSession.Credits + " of 2,000,000 per day (" + GenAiSession.Requests + " requests). Review before acting.", false);
+                    SetStatus("Done. Tokens in " + tokensIn + ", out " + tokensOut + (estimated ? " (estimated, the service sent no counts)" : "") + (GenAiModels.Find(chosen) == null ? ". Model not in the list, counted as 1x in / 2x out" : "") + ". Credits used in this session: " + GenAiSession.Credits + " of 2,000,000 per day (" + GenAiSession.Requests + " requests). Review before acting.", false);
                 });
             });
             worker.IsBackground = true; worker.Start();

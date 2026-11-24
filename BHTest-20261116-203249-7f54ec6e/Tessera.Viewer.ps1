@@ -9643,7 +9643,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         $references=@(Get-ChildItem -LiteralPath (Join-Path $PSHOME 'ref') -Filter '*.dll' | ForEach-Object FullName)
         $references+=@([Windows.Forms.Form].Assembly.Location,[Drawing.Graphics].Assembly.Location)
         $references+=@(Get-ChildItem -LiteralPath $PSHOME -Filter '*Windows*.dll' | Where-Object { $_.Name -match '^System\.(Windows\.Forms\.|Private\.Windows\.)' } | ForEach-Object FullName)
-    } else { $references=@('System.dll','System.Core.dll','System.Windows.Forms.dll','System.Drawing.dll','System.Net.Http.dll','System.DirectoryServices.Protocols.dll') }
+    } else { $references=@('System.dll','System.Core.dll','System.Windows.Forms.dll','System.Drawing.dll','System.Net.Http.dll','System.DirectoryServices.Protocols.dll','System.DirectoryServices.dll','System.Xml.dll') }
     Add-Type -TypeDefinition $native -ReferencedAssemblies $references
 }
 if ($Help) {

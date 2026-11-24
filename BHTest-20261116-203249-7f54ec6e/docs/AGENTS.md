@@ -103,6 +103,12 @@ One screen (Investigate, **AI settings**) over one file, `%LOCALAPPDATA%\Tessera
 
 The service address is the same fixed constant Scout uses (`https://api.genai.mil`); no setting changes it. Size and rate limits for genai.mil are not assumed anywhere in the code; everything is in the config file.
 
+## Agent status and what it is thinking
+
+The **Agents** tab in Investigate has one row per agent (triage, explainer, verifier, hunter, coordinator) showing its status (idle, waiting for the model, running a tool, reading the result, fixing an invalid reply, done, failed, stopped), the model, step and token use against its budget, what it is doing now, and the reason it gave for that step. It updates twice a second while the tab is open, and shows the last run of each agent after it finishes.
+
+Select a row to see that agent's thinking: the goal, each request sent to the model, **everything the model said** (the full reply, including the one-sentence reason it gives with every action), each tool call with its arguments, and each tool result. When the coordinator starts another agent, both rows update. The service does not return hidden chain-of-thought, so the model's own replies and stated reasons are all there is to show. This view is in memory for the session; the Log tab keeps the permanent record. The number of events kept per agent and the characters shown per event are in the settings.
+
 ## Findings, known list and logs
 
 Findings are stored per graph, keyed by candidate, so a re-run updates rather than duplicates. **Accept risk** and **False positive** move a finding to the known list with your note; later runs leave it out. The known list lives in the same findings file, so keeping that file with the graph (or on a share) gives a team one list. Open the list from **Known list...** to put an entry back.

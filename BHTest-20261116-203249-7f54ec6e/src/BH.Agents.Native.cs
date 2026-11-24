@@ -1316,6 +1316,7 @@
         public string[] Tools = new string[0];
         public Func<AgentDefinition, string> BuildPrompt;
         public Func<object, string> ValidateAnswer;        // returns null when the final answer has the right shape
+        public int MinSteps;                                // tool calls required before a final answer is accepted (0 for none)
     }
 
     internal sealed class AgentResult
@@ -1555,8 +1556,9 @@
             var result = new AgentResult { Model = ctx.ModelId };
             var turns = new List<string[]>();
             turns.Add(new string[] { "system", agent.BuildPrompt(agent) });
-            turns.Add(new string[] { "user", "GOAL (from the analyst):\n" + goal + "\n\nBegin. Reply with one JSON object." });
-            int failures = 0; bool lastChance = false;
+            var toolNames = new List<string>(); foreach (AgentTool t in AgentTools.Registered(agent.Tools)) toolNames.Add(t.Name);
+            turns.Add(new string[] { "user", "GOAL (from the analyst):\n" + goal + "\n\nYour tools, all working and connected to the data: " + string.Join(", ", toolNames.ToArray()) + ".\nBegin. Reply with one JSON object." });
+            int failures = 0, noToolReplies = 0; bool lastChance = false;
             while (true)
             {
                 if (ctx.Cancelled) { result.Status = "cancelled"; result.Error = "Stopped by the analyst."; return result; }
@@ -1593,9 +1595,20 @@
                     continue;
                 }
                 failures = 0;
+                if (parsed.IsFinal && result.Steps < agent.MinSteps && !lastChance)
+                {
+                    noToolReplies++; result.ParseFailures++;
+                    string gate = "You gave a final answer without using any tool. Your tools are real and connected to the analyst data; call one now. Available: " + string.Join(", ", toolNames.ToArray()) + ".";
+                    ctx.Log("parse_error", result.Model, "", gate);
+                    if (ctx.Progress != null) ctx.Progress("asked to use its tools", result.Steps, result.TokensIn + result.TokensOut, null, null);
+                    if (noToolReplies > AiConfig.RetriesPerStep) { result.Status = "no tools used"; result.Error = "The model kept answering without using any tool, so the answer was not accepted."; return result; }
+                    turns.Add(new string[] { "assistant", reply.Text ?? "" });
+                    turns.Add(new string[] { "user", "ERROR: " + gate + " Reply with an action request as one JSON object." });
+                    continue;
+                }
                 if (parsed.IsFinal) { result.Ok = true; result.Status = "done"; result.Answer = parsed.Answer; return result; }
                 if (lastChance) { result.Status = "no final answer"; result.Error = "The model asked for another tool after the step budget was spent."; return result; }
-                result.Steps++;
+                result.Steps++; noToolReplies = 0;
                 ctx.Log("tool_call", result.Model, parsed.Action, "{\"args\": " + ArgsText(parsed.Args) + ", \"reason\": " + GenAiJson.Quote(parsed.Reason) + "}");
                 if (ctx.Progress != null) ctx.Progress("running " + parsed.Action, result.Steps, result.TokensIn + result.TokensOut, parsed.Action + " " + ArgsText(parsed.Args), parsed.Reason);
                 if (ctx.Activity != null) ctx.Activity("step " + result.Steps + ": " + parsed.Action + " " + ArgsText(parsed.Args) + "  (" + parsed.Reason + ")");
@@ -1624,7 +1637,7 @@
 
         public static AgentDefinition Definition()
         {
-            return new AgentDefinition { Name = "triage", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer };
+            return new AgentDefinition { Name = "triage", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer, MinSteps = 1 };
         }
 
         /// <summary>The answer must be { "ranked": [ { candidate, title, rating, summary, hops?, evidence? } ], "notes"? }.</summary>
@@ -1748,7 +1761,7 @@
         public static readonly string[] Tools = new string[] { "get_finding", "candidate_path", "edges_between", "node_info", "find_node", "outgoing", "incoming", "group_members", "acl_edges", "shortest_path", "tier_zero", "describe_schema", "sql_select", "object_summary" };
         private static readonly string[] Results = new string[] { "supported", "contradicted", "unverifiable" };
 
-        public static AgentDefinition Definition() { return new AgentDefinition { Name = "verifier", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer }; }
+        public static AgentDefinition Definition() { return new AgentDefinition { Name = "verifier", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer, MinSteps = 1 }; }
 
         /// <summary>The code-level gate: the saved path must exist and every hop must be a real traversable edge in the collected data.</summary>
         public static string PreCheck(string indexPath, string candidate)
@@ -1854,7 +1867,7 @@
         {
             var sb = new StringBuilder("# HOW YOU TALK TO THE TOOL\nYou have no built-in tool calling. Every reply you send must be exactly one JSON object and nothing else (no prose, no code fences). There are two shapes.\n");
             sb.Append("An action request: {\"action\": \"<tool name>\", \"args\": {<arguments>}, \"reason\": \"<one short sentence>\"}\nA final answer: {\"final\": true, \"answer\": ...}\n");
-            sb.Append("One action per turn, never several. After an action you receive the result as TOOL OUTPUT. If your reply is not valid you will get an ERROR message; correct it and reply again.\n\n# TOOLS (read-only)\n");
+            sb.Append("One action per turn, never several. After an action you receive the result as TOOL OUTPUT. If your reply is not valid you will get an ERROR message; correct it and reply again.\nThe tools below are real and connected to the collected data right now. Never answer that tools or data are unavailable: if you believe you have no tools, you are mistaken, so call one from the list.\n\n# TOOLS (read-only)\n");
             foreach (AgentTool t in AgentTools.Registered(def.Tools))
             {
                 sb.Append("- ").Append(t.Signature()).Append(": ").Append(t.Description).Append('\n');
@@ -1882,7 +1895,7 @@
         public static readonly string[] Tools = new string[] { "describe_schema", "sql_select", "list_candidates", "candidate_path", "node_info", "find_node", "outgoing", "incoming", "group_members", "acl_edges", "shortest_path", "edges_between", "tier_zero", "overview", "object_summary", "snapshot_diff", "ad_query" };
         private static readonly string[] Ratings = new string[] { "high", "medium", "low" };
 
-        public static AgentDefinition Definition() { return new AgentDefinition { Name = "hunter", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer }; }
+        public static AgentDefinition Definition() { return new AgentDefinition { Name = "hunter", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer, MinSteps = 1 }; }
 
         public static string ValidateAnswer(object answer)
         {
@@ -2013,7 +2026,7 @@
     {
         public static readonly string[] Tools = new string[] { "list_findings", "get_finding", "common_hops", "candidate_path", "node_info", "outgoing", "incoming", "group_members", "acl_edges", "shortest_path", "tier_zero", "snapshot_diff", "object_summary", "overview" };
 
-        public static AgentDefinition Definition() { return new AgentDefinition { Name = "explainer", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer }; }
+        public static AgentDefinition Definition() { return new AgentDefinition { Name = "explainer", Tools = Tools, BuildPrompt = Prompt, ValidateAnswer = ValidateAnswer, MinSteps = 1 }; }
 
         public static string Goal(string scope)
         {

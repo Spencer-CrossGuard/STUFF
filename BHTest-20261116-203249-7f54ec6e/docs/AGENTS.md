@@ -108,6 +108,8 @@ The loop strips code fences and prose, parses the first complete JSON object, an
 
 Each agent has a maximum number of steps, a token budget and a per-request timeout. When the step budget runs out, one last request can only be a final answer.
 
+Triage, verifier, hunter and explainer must call at least one tool before a final answer is accepted. A model that answers "no tools are available" without trying (some models ignore the tool list in the system message) is told the tools are real, the tool names are repeated in the first user message, and after the retry limit the run stops with the status "no tools used" instead of storing an empty result. The chat coordinator may answer without tools.
+
 ## Triage and shared tools (all read-only)
 
 | Tool | What it returns |

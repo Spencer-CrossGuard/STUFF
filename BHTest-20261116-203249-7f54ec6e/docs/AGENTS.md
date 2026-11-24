@@ -16,6 +16,14 @@ Optional. Tessera, the collector and the viewer work exactly as before with no A
 
 * **Coordinator (phase 4).** The **Chat** tab: one chat box for all of the above.
 
+## Credit usage
+
+The **Agents** tab shows credits live: per agent (requests and credits this session, next to the status) and a summary line: credits this session split into agents and Scout, how many requests were estimated (the service sent no token counts), and the agents' total for the last 24 hours on this graph, including earlier sessions. **Usage details...** opens a table of credits per agent over the last 7 days and every recent run (time, agent, model, status, steps, requests, tokens, credits, who, goal), with an export to a tab separated file.
+
+Credits use the same model multipliers Scout uses (from the service's model list; a model it does not describe counts 1x in and 2x out, so usage is never under-reported). Each request also writes a `usage` line to the log. Run totals are saved in the findings file, so the history survives restarts.
+
+**Daily credit limit for agents** (AI settings; 0 means no limit): when the agents' credits in the last 24 hours on this graph reach it, new runs refuse to start, and a running agent stops at the limit. The summary turns red at the warning percentage (default 80). genai.mil's real limits are not assumed in code; set the number your account allows.
+
 ## Names
 
 The agents have names, shown everywhere in the Investigate tab: **Ranger** (triage), **Tracker** (hunter), **Warden** (verifier), **Herald** (explainer) and **Marshal** (the chat coordinator). You can call them by name in the chat. Rename any of them in AI settings, Agents tab, Name column (an empty name restores the default).

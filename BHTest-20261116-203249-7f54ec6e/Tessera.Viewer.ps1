@@ -6606,6 +6606,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public static string LiveAdServer = "", LiveAdBase = "";  // empty = the default domain controller and the domain root
         public static int LiveAdMaxResults = 25, LiveAdSeconds = 30;
         public static List<string> LiveAdAttributes = new List<string>(LiveAd.DefaultAttributes);
+        public static long DailyCreditLimit = 0;                  // credits per rolling 24 hours for the agents on this graph; 0 means no limit
+        public static int CreditWarnPercent = 80;
         public static int DiffSeconds = 120, SummaryTopN = 25, SummarySeconds = 300;
         public static string ActiveProfile = "default";
         public static Dictionary<string, AiProfile> Profiles = new Dictionary<string, AiProfile>(StringComparer.OrdinalIgnoreCase);
@@ -6679,6 +6681,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 MaxShortestPathVisited = Int(lim, "maxShortestPathVisited", MaxShortestPathVisited); MaxHistoryChars = Int(lim, "maxHistoryChars", MaxHistoryChars);
                 MaxDispatches = Int(lim, "maxDispatches", MaxDispatches); MaxVerifyPerDispatch = Int(lim, "maxVerifyPerDispatch", MaxVerifyPerDispatch); ChatHistoryChars = Int(lim, "chatHistoryChars", ChatHistoryChars); ConfirmDispatch = Flag(lim, "confirmDispatch", ConfirmDispatch);
                 MonitorEvents = Int(lim, "monitorEvents", MonitorEvents); MonitorChars = Int(lim, "monitorChars", MonitorChars);
+                { object dl = GenAiJson.Get(lim, "dailyCreditLimit"); if (dl is double) DailyCreditLimit = (long)(double)dl; CreditWarnPercent = Int(lim, "creditWarnPercent", CreditWarnPercent); }
                 DiffSeconds = Int(lim, "diffSeconds", DiffSeconds); SummaryTopN = Int(lim, "summaryTopN", SummaryTopN); SummarySeconds = Int(lim, "summarySeconds", SummarySeconds);
                 SqlMaxRows = Int(lim, "sqlMaxRows", SqlMaxRows); SqlTimeoutSeconds = Int(lim, "sqlTimeoutSeconds", SqlTimeoutSeconds); SqlMaxChars = Int(lim, "sqlMaxChars", SqlMaxChars); MaxLeads = Int(lim, "maxLeads", MaxLeads);
             }
@@ -6728,7 +6731,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             var o = new StringBuilder("{\n");
             o.Append("  \"enabled\": ").Append(Enabled ? "true" : "false").Append(",\n");
             o.Append("  \"limits\": { \"minGapMilliseconds\": ").Append(MinGapMilliseconds).Append(", \"retriesPerStep\": ").Append(RetriesPerStep).Append(", \"defaultListLimit\": ").Append(DefaultListLimit).Append(", \"maxListLimit\": ").Append(MaxListLimit)
-                .Append(", \"maxCandidateWindow\": ").Append(MaxCandidateWindow).Append(", \"maxScanRows\": ").Append(MaxScanRows).Append(", \"maxShortestPathVisited\": ").Append(MaxShortestPathVisited).Append(", \"maxHistoryChars\": ").Append(MaxHistoryChars).Append(", \"maxDispatches\": ").Append(MaxDispatches).Append(", \"maxVerifyPerDispatch\": ").Append(MaxVerifyPerDispatch).Append(", \"chatHistoryChars\": ").Append(ChatHistoryChars).Append(", \"confirmDispatch\": ").Append(ConfirmDispatch ? "true" : "false").Append(", \"monitorEvents\": ").Append(MonitorEvents).Append(", \"monitorChars\": ").Append(MonitorChars).Append(", \"diffSeconds\": ").Append(DiffSeconds).Append(", \"summaryTopN\": ").Append(SummaryTopN).Append(", \"summarySeconds\": ").Append(SummarySeconds).Append(", \"sqlMaxRows\": ").Append(SqlMaxRows).Append(", \"sqlTimeoutSeconds\": ").Append(SqlTimeoutSeconds).Append(", \"sqlMaxChars\": ").Append(SqlMaxChars).Append(", \"maxLeads\": ").Append(MaxLeads).Append(" },\n");
+                .Append(", \"maxCandidateWindow\": ").Append(MaxCandidateWindow).Append(", \"maxScanRows\": ").Append(MaxScanRows).Append(", \"maxShortestPathVisited\": ").Append(MaxShortestPathVisited).Append(", \"maxHistoryChars\": ").Append(MaxHistoryChars).Append(", \"maxDispatches\": ").Append(MaxDispatches).Append(", \"maxVerifyPerDispatch\": ").Append(MaxVerifyPerDispatch).Append(", \"chatHistoryChars\": ").Append(ChatHistoryChars).Append(", \"confirmDispatch\": ").Append(ConfirmDispatch ? "true" : "false").Append(", \"monitorEvents\": ").Append(MonitorEvents).Append(", \"monitorChars\": ").Append(MonitorChars).Append(", \"dailyCreditLimit\": ").Append(DailyCreditLimit).Append(", \"creditWarnPercent\": ").Append(CreditWarnPercent).Append(", \"diffSeconds\": ").Append(DiffSeconds).Append(", \"summaryTopN\": ").Append(SummaryTopN).Append(", \"summarySeconds\": ").Append(SummarySeconds).Append(", \"sqlMaxRows\": ").Append(SqlMaxRows).Append(", \"sqlTimeoutSeconds\": ").Append(SqlTimeoutSeconds).Append(", \"sqlMaxChars\": ").Append(SqlMaxChars).Append(", \"maxLeads\": ").Append(MaxLeads).Append(" },\n");
             o.Append("  \"agents\": {\n"); int n = 0;
             foreach (var pair in Agents)
             {
@@ -6812,6 +6815,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 CREATE TABLE IF NOT EXISTS explanations(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, model TEXT, created TEXT, scope TEXT, story TEXT, fix TEXT, snapshot TEXT);");
             // phase 2 columns on a findings table made by phase 1
             var have = new List<string>(); foreach (string[] c in db.Query("PRAGMA table_info(findings)")) have.Add(c[1]);
+            var haveRuns = new List<string>(); foreach (string[] c in db.Query("PRAGMA table_info(runs)")) haveRuns.Add(c[1]);
+            foreach (string col in new string[] { "credits", "requests" }) if (!haveRuns.Contains(col)) db.Exec("ALTER TABLE runs ADD COLUMN " + col + " INTEGER");
             foreach (string col in new string[] { "verification", "verified_by", "verified_at", "verified_snapshot" }) if (!have.Contains(col)) db.Exec("ALTER TABLE findings ADD COLUMN " + col + " TEXT");
             return db;
         }
@@ -6823,9 +6828,28 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             db.Execute("INSERT OR REPLACE INTO runs(run_id,agent,goal,model,profile,snapshot,who,started,status) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'running')", runId, agent, goal, model, AiConfig.ActiveProfile, snapshot, Environment.UserName, Now());
         }
 
-        public static void EndRun(MiniSqlite db, string runId, string status, int steps, int tokensIn, int tokensOut, string note)
+        public static void EndRun(MiniSqlite db, string runId, string status, int steps, int tokensIn, int tokensOut, string note) { EndRun(db, runId, status, steps, tokensIn, tokensOut, note, 0, 0); }
+
+        public static void EndRun(MiniSqlite db, string runId, string status, int steps, int tokensIn, int tokensOut, string note, long credits, int requests)
         {
-            db.Execute("UPDATE runs SET ended=?2,status=?3,steps=?4,tokens_in=?5,tokens_out=?6,note=?7 WHERE run_id=?1", runId, Now(), status, steps, tokensIn, tokensOut, note ?? "");
+            db.Execute("UPDATE runs SET ended=?2,status=?3,steps=?4,tokens_in=?5,tokens_out=?6,note=?7,credits=?8,requests=?9 WHERE run_id=?1", runId, Now(), status, steps, tokensIn, tokensOut, note ?? "", credits, requests);
+        }
+
+        /// <summary>Credits used by finished and running agent runs on this graph in the last hours.</summary>
+        public static long CreditsSince(MiniSqlite db, int hours)
+        {
+            var r = db.Query("SELECT COALESCE(SUM(credits),0) FROM runs WHERE started >= datetime('now', ?1)", "-" + hours + " hours");
+            long n; return r.Count > 0 && long.TryParse(r[0][0], NumberStyles.Integer, CultureInfo.InvariantCulture, out n) ? n : 0;
+        }
+
+        public static List<string[]> RecentRuns(MiniSqlite db, int limit)
+        {
+            return db.Query("SELECT started, agent, model, status, COALESCE(steps,0), COALESCE(requests,0), COALESCE(tokens_in,0), COALESCE(tokens_out,0), COALESCE(credits,0), COALESCE(who,''), COALESCE(goal,'') FROM runs ORDER BY started DESC LIMIT " + Math.Max(1, limit));
+        }
+
+        public static List<string[]> CreditsByAgent(MiniSqlite db, int hours)
+        {
+            return db.Query("SELECT agent, count(*), COALESCE(SUM(requests),0), COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0), COALESCE(SUM(credits),0) FROM runs WHERE started >= datetime('now', ?1) GROUP BY agent ORDER BY 6 DESC", "-" + hours + " hours");
         }
 
         public static bool IsAccepted(MiniSqlite db, string fingerprint) { return db.Query("SELECT 1 FROM accepted WHERE fingerprint=?1", fingerprint).Count > 0; }
@@ -7727,8 +7751,54 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public Func<string[], string, Dictionary<string, object>, string> ExecuteTool;    // (allowlist, tool, args) -> compact text
         public Action<string, string, string, string> Log;                                // (category, model, tool, text)
         public Action<string> Activity;                                                   // short live line for the UI
+        public long Credits; public int Requests;                                         // this run's model usage
         public Action<string, int, int, string, string> Progress;                         // (status, step, tokens, action, reason) for the status view
         public string ModelId = "";
+    }
+
+    /// <summary>Requests, tokens and credits each agent has used this session. Credits use the same model multipliers as Scout.</summary>
+    internal sealed class AgentUse
+    {
+        public string Agent = ""; public int Requests, EstimatedRequests; public long TokensIn, TokensOut, Credits;
+    }
+
+    internal static class AgentUsage
+    {
+        private static readonly object gate = new object();
+        private static readonly Dictionary<string, AgentUse> use = new Dictionary<string, AgentUse>(StringComparer.OrdinalIgnoreCase);
+
+        public static void Add(string agent, int tokensIn, int tokensOut, long credits, bool estimated)
+        {
+            lock (gate)
+            {
+                AgentUse u; if (!use.TryGetValue(agent, out u)) { u = new AgentUse { Agent = agent }; use[agent] = u; }
+                u.Requests++; if (estimated) u.EstimatedRequests++; u.TokensIn += tokensIn; u.TokensOut += tokensOut; u.Credits += credits;
+            }
+        }
+
+        public static AgentUse Get(string agent)
+        {
+            lock (gate) { AgentUse u; var copy = new AgentUse { Agent = agent }; if (use.TryGetValue(agent, out u)) { copy.Requests = u.Requests; copy.EstimatedRequests = u.EstimatedRequests; copy.TokensIn = u.TokensIn; copy.TokensOut = u.TokensOut; copy.Credits = u.Credits; } return copy; }
+        }
+
+        public static AgentUse Total()
+        {
+            lock (gate) { var t = new AgentUse { Agent = "all" }; foreach (AgentUse u in use.Values) { t.Requests += u.Requests; t.EstimatedRequests += u.EstimatedRequests; t.TokensIn += u.TokensIn; t.TokensOut += u.TokensOut; t.Credits += u.Credits; } return t; }
+        }
+
+        public static void Reset() { lock (gate) use.Clear(); }
+
+        /// <summary>One line for the status view. The 24 hour figure comes from the findings store (all agent runs on this graph, including earlier sessions).</summary>
+        public static string Summary(long last24h)
+        {
+            AgentUse a = Total(); long scout = Math.Max(0, GenAiSession.Credits - a.Credits);
+            string text = "Credits this session: " + (a.Credits + scout).ToString("N0", CultureInfo.InvariantCulture) + " (agents " + a.Credits.ToString("N0", CultureInfo.InvariantCulture) + ", Scout " + scout.ToString("N0", CultureInfo.InvariantCulture) + "), " + a.Requests + " agent request(s)"
+                + (a.EstimatedRequests > 0 ? ", " + a.EstimatedRequests + " estimated because the service sent no token counts" : "") + "   |   Agents, last 24 hours: " + last24h.ToString("N0", CultureInfo.InvariantCulture);
+            if (AiConfig.DailyCreditLimit > 0) text += " of " + AiConfig.DailyCreditLimit.ToString("N0", CultureInfo.InvariantCulture) + " (" + (last24h * 100 / AiConfig.DailyCreditLimit) + "%)";
+            return text;
+        }
+
+        public static bool NearLimit(long last24h) { return AiConfig.DailyCreditLimit > 0 && last24h * 100 >= AiConfig.DailyCreditLimit * Math.Max(1, AiConfig.CreditWarnPercent); }
     }
 
     /// <summary>What one agent is doing right now, for the status view.</summary>
@@ -8436,6 +8506,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 case "parse_error": return "INVALID REPLY, asking again: " + text;
                 case "error": return "ERROR: " + text;
                 case "live_ad": return "LIVE AD: " + text;
+                case "usage": return "Used " + text;
                 default: return text;
             }
         }
@@ -8594,11 +8665,17 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             result.Model = model;
             if (model.Length == 0) { result.Status = "no model"; result.Error = "No model is chosen. Pick one in Scout setup, or set a model for this agent in the AI settings."; return result; }
             AgentSettings cfg = AiConfig.Agent(agent.Name);
-            MiniSqlite store = null;
+            MiniSqlite store = null; long runCredits = 0; int runRequests = 0;
             try
             {
                 store = FindingsStore.Open(indexPath);
                 string snapshot = FindingsStore.SnapshotId(indexPath);
+                long usedAtStart = AiConfig.DailyCreditLimit > 0 ? FindingsStore.CreditsSince(store, 24) : 0;
+                if (AiConfig.DailyCreditLimit > 0 && usedAtStart >= AiConfig.DailyCreditLimit)
+                {
+                    result.Status = "credit limit"; result.Error = "The daily credit limit (" + AiConfig.DailyCreditLimit.ToString("N0", CultureInfo.InvariantCulture) + ") is reached: " + usedAtStart.ToString("N0", CultureInfo.InvariantCulture) + " used by agents in the last 24 hours. Raise the limit in AI settings or wait.";
+                    return result;
+                }
                 FindingsStore.StartRun(store, result.RunId, agent.Name, goal, model, snapshot);
                 var ctx = new AgentRunContext { IndexPath = indexPath, RunId = result.RunId, Goal = goal, ModelId = model };
                 ctx.Tools.IndexPath = indexPath; ctx.Tools.AgentName = agent.Name; ctx.Tools.MaxResultChars = cfg.MaxResultChars;
@@ -8619,8 +8696,16 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                 AgentMonitor.Begin(agent.Name, model, cfg.MaxSteps, cfg.MaxTotalTokens, goal);
                 ctx.Model = delegate(string m, List<string[]> turns, int maxTokens, int timeout)
                 {
+                    if (AiConfig.DailyCreditLimit > 0 && usedAtStart + ctx.Credits >= AiConfig.DailyCreditLimit) return new GenAiResult { Error = "The daily credit limit (" + AiConfig.DailyCreditLimit.ToString("N0", CultureInfo.InvariantCulture) + ") was reached during this run." };
                     GenAiResult r = client.ChatMessages(m, turns, maxTokens, null);
-                    GenAiSession.Requests++; GenAiSession.Credits += GenAiModels.Credits(m, r.PromptTokens, r.CompletionTokens);
+                    if (r.Error != null) return r;
+                    GenAiSession.Requests++;
+                    int tin = r.PromptTokens, tout = r.CompletionTokens; bool estimated = false;
+                    if (tin == 0 && tout == 0) { int ch = 0; foreach (string[] t in turns) ch += t[1].Length; tin = ch / 4; tout = (r.Text ?? "").Length / 4; estimated = true; }
+                    long credits = GenAiModels.Credits(m, tin, tout);
+                    GenAiSession.Credits += credits; ctx.Credits += credits; ctx.Requests++; runCredits = ctx.Credits; runRequests = ctx.Requests;
+                    AgentUsage.Add(agent.Name, tin, tout, credits, estimated);
+                    ctx.Log("usage", m, "", "in=" + tin + " out=" + tout + " credits=" + credits + (estimated ? " (estimated: the service sent no token counts)" : ""));
                     return r;
                 };
                 ctx.ExecuteTool = delegate(string[] allow, string tool, Dictionary<string, object> args) { return AgentTools.Execute(allow, tool, args, ctx.Tools); };
@@ -8639,14 +8724,14 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
                     ctx.Log("error", model, "", run.Status + ": " + run.Error);
                     AgentMonitor.End(agent.Name, run.Status == "cancelled" ? "stopped" : "failed", run.Status + ": " + run.Error);
                 }
-                FindingsStore.EndRun(store, result.RunId, run.Status, run.Steps, run.TokensIn, run.TokensOut, run.Error);
+                FindingsStore.EndRun(store, result.RunId, run.Status, run.Steps, run.TokensIn, run.TokensOut, run.Error, ctx.Credits, ctx.Requests);
                 return run;
             }
             catch (Exception ex)
             {
                 AgentMonitor.End(agent.Name, "failed", ex.Message);
                 result.Status = "failed"; result.Error = ex.Message;
-                try { if (store != null) { FindingsStore.Log(store, result.RunId, agent.Name, "error", model, "", ex.ToString()); FindingsStore.EndRun(store, result.RunId, "failed", result.Steps, result.TokensIn, result.TokensOut, ex.Message); } } catch (Exception) { }
+                try { if (store != null) { FindingsStore.Log(store, result.RunId, agent.Name, "error", model, "", ex.ToString()); FindingsStore.EndRun(store, result.RunId, "failed", result.Steps, result.TokensIn, result.TokensOut, ex.Message, runCredits, runRequests); } } catch (Exception) { }
                 return result;
             }
             finally { if (store != null) store.Dispose(); handle.Client = null; }
@@ -8743,6 +8828,9 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         private string baselinePath = "";
         private readonly TextBox explanation, chatBox, chatInput, thinking;
         private readonly DataGridView statusGrid;
+        private readonly Label usageLabel;
+        private readonly Button usageButton;
+        private DateTime usageChecked = DateTime.MinValue; private long usage24;
         private readonly TabPage statusTab;
         private readonly System.Windows.Forms.Timer statusTimer;
         private int statusVersion = -1;
@@ -8842,7 +8930,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             logLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36)); logLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var lbar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, BackColor = PanelColor };
             logCategory = new ComboBox { Name = "AgentLogCategory", DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, BackColor = Bg, ForeColor = Ink, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 4, 6, 0) };
-            logCategory.Items.AddRange(new object[] { "All", "model_request", "model_response", "tool_call", "tool_result", "parse_error", "live_ad", "error", "info" }); logCategory.SelectedIndex = 0;
+            logCategory.Items.AddRange(new object[] { "All", "usage", "model_request", "model_response", "tool_call", "tool_result", "parse_error", "live_ad", "error", "info" }); logCategory.SelectedIndex = 0;
             logFilter = new TextBox { Name = "AgentLogFilter", Width = 220, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 6, 0) };
             refreshLog = Flat("Refresh"); refreshLog.Name = "AgentLogRefresh"; refreshLog.Click += delegate { LoadLog(); };
             exportLog = Flat("Export..."); exportLog.Name = "AgentLogExport"; exportLog.Click += delegate { ExportLog(); };
@@ -8868,13 +8956,17 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             chatBox.Text = "Talk to " + AiConfig.Name("coordinator") + " in plain language, or call an agent by name: " + AiConfig.Name("triage") + " ranks, " + AiConfig.Name("hunter") + " hunts, " + AiConfig.Name("verifier") + " verifies, " + AiConfig.Name("explainer") + " explains. For example: what is the worst thing you found? verify the high ones. hunt for unusual service accounts. explain the fix.\r\n" + AiConfig.Name("coordinator") + " answers from the stored findings or starts the right agent" + (AiConfig.ConfirmDispatch ? " after you allow it" : "") + ".";
             chatTab.Controls.Add(chatLayout);
             statusTab = new TabPage("Agents") { BackColor = PanelColor };
-            var statusLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = PanelColor };
-            statusLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150)); statusLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22)); statusLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            statusGrid = MakeGrid("AgentStatus", new string[] { "Agent", "Status", "Model", "Step", "Tokens", "Doing now", "Why", "Updated" }, new int[] { 150, 130, 110, 60, 90, 220, 260, 80 });
+            var statusLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = PanelColor };
+            statusLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150)); statusLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32)); statusLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22)); statusLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            statusGrid = MakeGrid("AgentStatus", new string[] { "Agent", "Status", "Model", "Step", "Tokens (run)", "Requests", "Credits", "Doing now", "Why", "Updated" }, new int[] { 150, 120, 100, 55, 100, 70, 80, 200, 230, 70 });
             statusGrid.SelectionChanged += delegate { if (statusGrid.CurrentRow != null) { statusAgent = Convert.ToString(statusGrid.CurrentRow.Tag); statusVersion = -1; ShowThinking(); } };
             thinking = new TextBox { Name = "AgentThinking", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Bg, ForeColor = Ink, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9.5f) };
             var thinkNote = new Label { Text = "Selected agent: what the model said, the reason it gave for each step, and what each tool returned. The service does not provide hidden reasoning, so this is everything the model said.", Dock = DockStyle.Fill, ForeColor = Muted, AutoEllipsis = true };
-            statusLayout.Controls.Add(statusGrid, 0, 0); statusLayout.Controls.Add(thinkNote, 0, 1); statusLayout.Controls.Add(thinking, 0, 2);
+            var usageBar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, BackColor = PanelColor, Margin = new Padding(0) };
+            usageLabel = new Label { AutoSize = true, ForeColor = Muted, Margin = new Padding(2, 8, 10, 0), Text = "Credits: nothing used yet this session." };
+            usageButton = Flat("Usage details..."); usageButton.Name = "AgentUsage"; usageButton.Click += delegate { using (var d = new AgentUsageDialog(indexPath)) d.ShowDialog(this); };
+            usageBar.Controls.Add(usageButton); usageBar.Controls.Add(usageLabel);
+            statusLayout.Controls.Add(statusGrid, 0, 0); statusLayout.Controls.Add(usageBar, 0, 1); statusLayout.Controls.Add(thinkNote, 0, 2); statusLayout.Controls.Add(thinking, 0, 3);
             statusTab.Controls.Add(statusLayout);
             statusTimer = new System.Windows.Forms.Timer { Interval = 500 };
             statusTimer.Tick += delegate { if (Visible && bottom.SelectedTab == statusTab) RefreshStatus(); };
@@ -8951,15 +9043,22 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             var list = AgentMonitor.Snapshot();
             bool running = list.Exists(delegate(AgentState a) { return a.Running; });
             if (AgentMonitor.Version == statusVersion && !running) return;
-            if (statusGrid.Rows.Count != list.Count) { statusGrid.Rows.Clear(); foreach (AgentState a in list) { int ri = statusGrid.Rows.Add("", "", "", "", "", "", "", ""); statusGrid.Rows[ri].Tag = a.Agent; } }
+            if (statusGrid.Rows.Count != list.Count) { statusGrid.Rows.Clear(); foreach (AgentState a in list) { int ri = statusGrid.Rows.Add("", "", "", "", "", "", "", "", "", ""); statusGrid.Rows[ri].Tag = a.Agent; } }
             for (int i = 0; i < list.Count; i++)
             {
                 AgentState a = list[i]; DataGridViewRow row = statusGrid.Rows[i];
                 row.Cells[0].Value = AiConfig.Name(a.Agent) + " (" + a.Agent + ")";
                 row.Cells[1].Value = a.Status; row.Cells[2].Value = a.Model; row.Cells[3].Value = a.MaxSteps > 0 ? a.Step + "/" + a.MaxSteps : "";
                 row.Cells[4].Value = a.TokenBudget > 0 ? a.Tokens.ToString("N0", CultureInfo.InvariantCulture) + "/" + a.TokenBudget.ToString("N0", CultureInfo.InvariantCulture) : "";
-                row.Cells[5].Value = a.Running || a.Action.Length > 0 ? a.Action : ""; row.Cells[6].Value = a.Running ? a.Reason : a.Result; row.Cells[7].Value = Ago(a.Updated);
+                AgentUse use = AgentUsage.Get(a.Agent); row.Cells[5].Value = use.Requests > 0 ? use.Requests.ToString(CultureInfo.InvariantCulture) : ""; row.Cells[6].Value = use.Requests > 0 ? use.Credits.ToString("N0", CultureInfo.InvariantCulture) : "";
+                row.Cells[7].Value = a.Running || a.Action.Length > 0 ? a.Action : ""; row.Cells[8].Value = a.Running ? a.Reason : a.Result; row.Cells[9].Value = Ago(a.Updated);
                 row.Cells[1].Style.ForeColor = a.Running ? Accent : a.Status == "done" ? Good : (a.Status == "failed" || a.Status == "stopped") ? Danger : Muted;
+            }
+            if ((DateTime.Now - usageChecked).TotalSeconds > 8 || AgentMonitor.Version != statusVersion)
+            {
+                usageChecked = DateTime.Now;
+                try { using (MiniSqlite db = FindingsStore.Open(indexPath)) usage24 = FindingsStore.CreditsSince(db, 24); } catch (Exception) { }
+                usageLabel.Text = AgentUsage.Summary(usage24); usageLabel.ForeColor = AgentUsage.NearLimit(usage24) ? Danger : Muted;
             }
             if (statusGrid.CurrentRow == null && statusGrid.Rows.Count > 0) statusGrid.CurrentCell = statusGrid.Rows[0].Cells[0];
             if (AgentMonitor.Version != statusVersion) { statusVersion = AgentMonitor.Version; ShowThinking(); }
@@ -9300,13 +9399,88 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         }
     }
 
+    /// <summary>Credit usage per agent and per run, from the findings store, with an export.</summary>
+    internal sealed class AgentUsageDialog : Form
+    {
+        private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81), Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202);
+        private readonly string indexPath;
+        private readonly DataGridView byAgent, runs;
+        private readonly Label totals;
+
+        public AgentUsageDialog(string index)
+        {
+            indexPath = index;
+            Text = "Agent credit usage"; Name = "AgentUsageDialog"; Size = new Size(1000, 640); MinimumSize = new Size(800, 480); StartPosition = FormStartPosition.CenterParent; BackColor = PanelColor; ForeColor = Ink; Font = new Font("Segoe UI", 10);
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = PanelColor, Padding = new Padding(10) };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 170)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            Controls.Add(layout);
+            totals = new Label { Dock = DockStyle.Fill, ForeColor = Ink, AutoEllipsis = true };
+            byAgent = Grid("UsageByAgent", new string[] { "Agent", "Runs", "Requests", "Tokens in", "Tokens out", "Credits" }, new int[] { 160, 70, 90, 110, 110, 110 });
+            runs = Grid("UsageRuns", new string[] { "Started (UTC)", "Agent", "Model", "Status", "Steps", "Requests", "Tokens in", "Tokens out", "Credits", "Who", "Goal" }, new int[] { 130, 90, 110, 90, 50, 70, 80, 80, 80, 80, 300 });
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, BackColor = PanelColor };
+            var close = Flat("Close"); close.Click += delegate { Close(); };
+            var export = Flat("Export runs..."); export.Click += delegate { Export(); };
+            var note = new Label { Text = "Credits use the model multipliers the service reports (an unlisted model counts 1x in, 2x out). Requests without token counts from the service are estimated from text length.", AutoSize = true, ForeColor = Muted, Margin = new Padding(8, 10, 0, 0) };
+            bar.Controls.Add(close); bar.Controls.Add(export); bar.Controls.Add(note);
+            layout.Controls.Add(totals, 0, 0); layout.Controls.Add(byAgent, 0, 1); layout.Controls.Add(runs, 0, 2); layout.Controls.Add(bar, 0, 3);
+            Load();
+        }
+
+        private static Button Flat(string text)
+        {
+            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 39, 60), ForeColor = Ink, Margin = new Padding(4, 2, 4, 2), Padding = new Padding(8, 0, 8, 0) };
+            b.FlatAppearance.BorderColor = Line; return b;
+        }
+
+        private DataGridView Grid(string name, string[] columns, int[] widths)
+        {
+            var g = new DataGridView { Name = name, Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, RowHeadersVisible = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, BackgroundColor = Bg, GridColor = Line, BorderStyle = BorderStyle.None, EnableHeadersVisualStyles = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None };
+            g.ColumnHeadersDefaultCellStyle.BackColor = PanelColor; g.ColumnHeadersDefaultCellStyle.ForeColor = Muted; g.DefaultCellStyle.BackColor = Bg; g.DefaultCellStyle.ForeColor = Ink; g.DefaultCellStyle.SelectionBackColor = Color.FromArgb(36, 62, 102); g.DefaultCellStyle.SelectionForeColor = Ink;
+            for (int i = 0; i < columns.Length; i++) g.Columns.Add(new DataGridViewTextBoxColumn { Name = columns[i].Replace(" ", "").Replace("(", "").Replace(")", ""), HeaderText = columns[i], Width = widths[i] });
+            return g;
+        }
+
+        private void Load()
+        {
+            try
+            {
+                using (MiniSqlite db = FindingsStore.Open(indexPath))
+                {
+                    long day = FindingsStore.CreditsSince(db, 24), week = FindingsStore.CreditsSince(db, 24 * 7);
+                    totals.Text = "Agents on this graph: " + day.ToString("N0", CultureInfo.InvariantCulture) + " credits in the last 24 hours, " + week.ToString("N0", CultureInfo.InvariantCulture) + " in the last 7 days" + (AiConfig.DailyCreditLimit > 0 ? ". Daily limit " + AiConfig.DailyCreditLimit.ToString("N0", CultureInfo.InvariantCulture) + " (" + (day * 100 / AiConfig.DailyCreditLimit) + "% used)." : ". No daily limit is set (AI settings).");
+                    foreach (string[] r in FindingsStore.CreditsByAgent(db, 24 * 7)) byAgent.Rows.Add(AiConfig.Name(r[0]) + " (" + r[0] + ")", r[1], r[2], Num(r[3]), Num(r[4]), Num(r[5]));
+                    foreach (string[] r in FindingsStore.RecentRuns(db, 300)) runs.Rows.Add(r[0], AiConfig.Name(r[1]), r[2], r[3], r[4], r[5], Num(r[6]), Num(r[7]), Num(r[8]), r[9], r[10].Length > 200 ? r[10].Substring(0, 200) : r[10]);
+                }
+            }
+            catch (Exception ex) { totals.Text = "The usage could not be read: " + ex.Message; }
+        }
+
+        private static string Num(string s) { long n; return long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) ? n.ToString("N0", CultureInfo.InvariantCulture) : s; }
+
+        private void Export()
+        {
+            using (var dialog = new SaveFileDialog { Title = "Export agent runs", Filter = "Tab separated (*.tsv)|*.tsv", FileName = "tessera-agent-usage.tsv" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    var sb = new StringBuilder("started_utc\tagent\tmodel\tstatus\tsteps\trequests\ttokens_in\ttokens_out\tcredits\twho\tgoal\r\n");
+                    using (MiniSqlite db = FindingsStore.Open(indexPath))
+                        foreach (string[] r in FindingsStore.RecentRuns(db, 100000)) { for (int i = 0; i < r.Length; i++) sb.Append(i > 0 ? "\t" : "").Append(r[i].Replace("\t", " ").Replace("\r", " ").Replace("\n", " ")); sb.Append("\r\n"); }
+                    File.WriteAllText(dialog.FileName, sb.ToString(), new UTF8Encoding(false));
+                }
+                catch (Exception ex) { MessageBox.Show(this, "Export failed: " + ex.Message, "Agent usage"); }
+            }
+        }
+    }
+
     // ---- one settings screen over one config file
     internal sealed class AgentSettingsDialog : Form
     {
         private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81), Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202);
         private readonly CheckBox enabled, liveAd;
         private readonly TextBox liveServer, liveBase, liveMax, liveSeconds, liveAttrs, diffSecs, sumTop, sumSecs;
-        private readonly TextBox monEvents, monChars, gap, retries, sqlRows, sqlSeconds, maxLeads, maxDispatch, maxVerify, tier, notes, profile;
+        private readonly TextBox creditLimit, creditWarn, monEvents, monChars, gap, retries, sqlRows, sqlSeconds, maxLeads, maxDispatch, maxVerify, tier, notes, profile;
         private readonly CheckBox confirmDispatch;
         private readonly DataGridView agents;
         private readonly CheckedListBox tools;
@@ -9315,7 +9489,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         public AgentSettingsDialog()
         {
             AiConfig.Load();
-            Text = "AI settings"; Name = "AgentSettingsDialog"; Size = new Size(880, 900); MinimumSize = new Size(760, 700); StartPosition = FormStartPosition.CenterParent;
+            Text = "AI settings"; Name = "AgentSettingsDialog"; Size = new Size(880, 960); MinimumSize = new Size(760, 700); StartPosition = FormStartPosition.CenterParent;
             BackColor = PanelColor; ForeColor = Ink; Font = new Font("Segoe UI", 10);
             var tabs = new TabControl { Dock = DockStyle.Fill };
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 46, FlowDirection = FlowDirection.RightToLeft, BackColor = PanelColor, Padding = new Padding(8) };
@@ -9328,7 +9502,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             var g = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = PanelColor, Padding = new Padding(12) };
             g.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210)); g.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             enabled = new CheckBox { Text = "Turn the AI layer on (Scout and Investigate). Restart the viewer to apply.", AutoSize = true, ForeColor = Ink };
-            gap = Field(); retries = Field(); monEvents = Field(); monChars = Field(); sqlRows = Field(); sqlSeconds = Field(); maxLeads = Field(); maxDispatch = Field(); maxVerify = Field();
+            gap = Field(); retries = Field(); creditLimit = Field(); creditWarn = Field(); monEvents = Field(); monChars = Field(); sqlRows = Field(); sqlSeconds = Field(); maxLeads = Field(); maxDispatch = Field(); maxVerify = Field();
             confirmDispatch = new CheckBox { Text = "Ask me before the chat assistant starts an agent", AutoSize = true, ForeColor = Ink };
             var scoutSetup = Flat("Open Scout setup..."); scoutSetup.Click += delegate { using (var d = new ScoutSetupDialog()) d.ShowDialog(this); Fill(); };
             liveAd = new CheckBox { Text = "Allow live Active Directory queries (hunter only; you approve every query)", AutoSize = true, ForeColor = Ink };
@@ -9338,6 +9512,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             AddRow(g, "Connection", scoutSetup); AddRow(g, "", Hint("The key, service, model list and default model are all set in Scout setup. The agents use exactly the same connection as Scout."));
             AddRow(g, "Pause between requests (ms)", gap); AddRow(g, "Retries per step", retries);
             AddRow(g, "", confirmDispatch); AddRow(g, "Most agents per chat message", maxDispatch); AddRow(g, "Most findings verified per request", maxVerify);
+            AddRow(g, "Daily credit limit for agents", creditLimit); AddRow(g, "", Hint("Credits per rolling 24 hours across all agent runs on this graph. 0 means no limit. Agents stop starting when it is reached, and a running agent stops at the limit. The Agents tab turns red at the warning percentage."));
+            AddRow(g, "Warn at this percent of the limit", creditWarn);
             AddRow(g, "Status view: events kept per agent", monEvents); AddRow(g, "Status view: characters per event", monChars);
             AddRow(g, "SQL row cap", sqlRows); AddRow(g, "SQL time limit (seconds)", sqlSeconds); AddRow(g, "Most leads per hunt", maxLeads);
             AddRow(g, "Snapshot compare time limit (s)", diffSecs); AddRow(g, "Summaries: top N and time limit (s)", sumTop); AddRow(g, "", sumSecs);
@@ -9404,6 +9580,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         {
             enabled.Checked = AiConfig.Enabled;
             confirmDispatch.Checked = AiConfig.ConfirmDispatch; maxDispatch.Text = AiConfig.MaxDispatches.ToString(CultureInfo.InvariantCulture); maxVerify.Text = AiConfig.MaxVerifyPerDispatch.ToString(CultureInfo.InvariantCulture);
+            creditLimit.Text = AiConfig.DailyCreditLimit.ToString(CultureInfo.InvariantCulture); creditWarn.Text = AiConfig.CreditWarnPercent.ToString(CultureInfo.InvariantCulture);
             monEvents.Text = AiConfig.MonitorEvents.ToString(CultureInfo.InvariantCulture); monChars.Text = AiConfig.MonitorChars.ToString(CultureInfo.InvariantCulture);
             liveAd.Checked = AiConfig.LiveAdEnabled; liveServer.Text = AiConfig.LiveAdServer; liveBase.Text = AiConfig.LiveAdBase; liveMax.Text = AiConfig.LiveAdMaxResults.ToString(CultureInfo.InvariantCulture); liveSeconds.Text = AiConfig.LiveAdSeconds.ToString(CultureInfo.InvariantCulture); liveAttrs.Text = string.Join(", ", AiConfig.LiveAdAttributes.ToArray());
             diffSecs.Text = AiConfig.DiffSeconds.ToString(CultureInfo.InvariantCulture); sumTop.Text = AiConfig.SummaryTopN.ToString(CultureInfo.InvariantCulture); sumSecs.Text = AiConfig.SummarySeconds.ToString(CultureInfo.InvariantCulture);
@@ -9428,6 +9605,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         {
             AiConfig.Enabled = enabled.Checked;
             AiConfig.ConfirmDispatch = confirmDispatch.Checked; AiConfig.MaxDispatches = Num(maxDispatch.Text, AiConfig.MaxDispatches, 1); AiConfig.MaxVerifyPerDispatch = Num(maxVerify.Text, AiConfig.MaxVerifyPerDispatch, 1);
+            { long lim; AiConfig.DailyCreditLimit = long.TryParse(creditLimit.Text.Trim().Replace(",", ""), NumberStyles.Integer, CultureInfo.InvariantCulture, out lim) && lim >= 0 ? lim : AiConfig.DailyCreditLimit; }
+            AiConfig.CreditWarnPercent = Num(creditWarn.Text, AiConfig.CreditWarnPercent, 1);
             AiConfig.MonitorEvents = Num(monEvents.Text, AiConfig.MonitorEvents, 10); AiConfig.MonitorChars = Num(monChars.Text, AiConfig.MonitorChars, 200);
             AiConfig.LiveAdEnabled = liveAd.Checked; AiConfig.LiveAdServer = liveServer.Text.Trim(); AiConfig.LiveAdBase = liveBase.Text.Trim();
             AiConfig.LiveAdMaxResults = Num(liveMax.Text, AiConfig.LiveAdMaxResults, 1); AiConfig.LiveAdSeconds = Num(liveSeconds.Text, AiConfig.LiveAdSeconds, 1);

@@ -1,4 +1,4 @@
-# Tessera AI agents (phases 1 to 4: triage, verifier, explainer, hunter, chat coordinator)
+# Tessera AI agents (triage, verifier, explainer, hunter, chat coordinator, plus snapshot diffing, summaries and live AD)
 
 Optional. Tessera, the collector and the viewer work exactly as before with no AI at all, including on an air-gapped machine. The agent layer sits next to Scout (the existing assistant) and reuses its connection: you press **Connect** in Scout setup with your API key, and the agents use that key, that service and that model list. The key is never saved.
 
@@ -16,7 +16,33 @@ Optional. Tessera, the collector and the viewer work exactly as before with no A
 
 * **Coordinator (phase 4).** The **Chat** tab: one chat box for all of the above.
 
-Not yet built: live Active Directory queries and collection diffing. Live AD is not available in this version and cannot be switched on.
+## Names
+
+The agents have names, shown everywhere in the Investigate tab: **Ranger** (triage), **Tracker** (hunter), **Warden** (verifier), **Herald** (explainer) and **Marshal** (the chat coordinator). You can call them by name in the chat. Rename any of them in AI settings, Agents tab, Name column (an empty name restores the default).
+
+## Compare snapshots
+
+**Baseline snapshot...** picks an older `graph.sqlite`. The `snapshot_diff` tool (hunter and explainer, so also chat) then reports what changed: objects added or removed, relationships added or removed grouped by type, and samples of the permissions and memberships that changed, with names (objects that exist only in the baseline are marked). The comparison is a read-only scan of both files with a time limit (settings: snapshot compare time limit); if it stops at the limit it says the counts are incomplete. Use the "what changed" hunt preset, or ask in chat. Findings already record the snapshot they were first and last seen in; a verdict only holds for the snapshot it was checked against.
+
+## Precomputed summaries
+
+**Build summaries** runs a one-off read-only pass over the whole collection (objects by kind, relationships by type, the largest groups, the objects holding the most permissions, the saved candidate count) and caches it in the findings file for this snapshot. Agents read it with `overview` at no cost, and `object_summary` caches a one-object summary (kind, role, properties, relationship counts, group size) the first time an agent asks. Cached entries are tied to the snapshot, so a new snapshot is never answered from an old one. Each section has its own time limit (settings) so one slow section does not lose the rest.
+
+## Live AD queries
+
+Off by default and only for the hunter. Turn it on in AI settings (General tab: "Allow live Active Directory queries"). `ad_query` then lets the hunter check the current state of something against the live domain. Safeguards, all in code:
+
+* **You approve every single query.** A warning dialog shows the agent, server, search base, filter and attributes, and the default button is No. If there is no way to ask you (for example outside the Investigate tab), the query is refused.
+* **Read-only and narrow.** It is a paged LDAP search only (nothing that writes is in the code), using your signed-in Windows credentials with signing and sealing. Only attributes on the allowlist can be read (settings; the default list has no password, LAPS, or key attributes), at most 12 per query. The filter must be well formed. Rows are capped and there is a time limit (settings).
+* **Its own log category.** Every request, approval or decline (with your Windows user name), result count and failure is logged in the `live_ad` category, filterable in the Log tab and shown in the Agents tab thinking pane.
+* **Data, not instructions.** Results are labeled as live data and the prompt tells agents never to follow text found in them.
+* A separate tool switch (Tools tab) can turn `ad_query` off even when live AD is enabled. When live AD is off the tool is not offered to the model at all.
+
+The server and search base default to your domain controller and domain root; set them in the settings to point somewhere else.
+
+## Verified findings
+
+The verified report can be exported as Markdown, HTML or text. **Ask Scout** on a verified (or any) triage finding opens its path and hands it to Scout for a plain-language explanation and fixes.
 
 ## Chat
 
@@ -90,7 +116,7 @@ Each agent has a maximum number of steps, a token budget and a per-request timeo
 
 Results are compact text with counts and truncated samples, and say when more exist. Device roles from your roles file are attached to object labels automatically.
 
-Safeguards enforced in code, not only in the prompt: the executor refuses unknown tools, tools outside the agent's allowlist, and tools switched off in the settings, even if the model asks for them by name; the main database is opened read-only with a query time limit; findings must name a real saved candidate or they are dropped and logged; live AD is off and has no tool in this version.
+Safeguards enforced in code, not only in the prompt: the executor refuses unknown tools, tools outside the agent's allowlist, and tools switched off in the settings, even if the model asks for them by name; the main database is opened read-only with a query time limit; findings must name a real saved candidate or they are dropped and logged; live AD is off by default, only the hunter can use it, and every live query needs your approval.
 
 ## Settings
 

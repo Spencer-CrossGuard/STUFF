@@ -3008,7 +3008,7 @@
             var note = new Label { Text = "Credits use the model multipliers the service reports (an unlisted model counts 1x in, 2x out). Requests without token counts from the service are estimated from text length.", AutoSize = true, ForeColor = Muted, Margin = new Padding(8, 10, 0, 0) };
             bar.Controls.Add(close); bar.Controls.Add(export); bar.Controls.Add(note);
             layout.Controls.Add(totals, 0, 0); layout.Controls.Add(byAgent, 0, 1); layout.Controls.Add(runs, 0, 2); layout.Controls.Add(bar, 0, 3);
-            Load();
+            LoadUsage();
         }
 
         private static Button Flat(string text)
@@ -3025,7 +3025,7 @@
             return g;
         }
 
-        private void Load()
+        private void LoadUsage()
         {
             try
             {

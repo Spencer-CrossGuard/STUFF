@@ -1,4 +1,4 @@
-# Tessera AI agents (phases 1 and 2: triage, verifier, explainer)
+# Tessera AI agents (phases 1 to 3: triage, verifier, explainer, hunter)
 
 Optional. Tessera, the collector and the viewer work exactly as before with no AI at all, including on an air-gapped machine. The agent layer sits next to Scout (the existing assistant) and reuses its connection: you press **Connect** in Scout setup with your API key, and the agents use that key, that service and that model list. The key is never saved.
 
@@ -12,7 +12,27 @@ Optional. Tessera, the collector and the viewer work exactly as before with no A
 * **Verifier agent (phase 2).** Re-checks every claim in a finding against the raw data and marks it confirmed or rejected. It is the only gate to the report.
 * **Explainer agent (phase 2).** Turns the stored findings into a plain English story, hop by hop, and names the single fix that breaks the most paths.
 
-Not yet built: hunter and coordinator agents, guarded SELECT, live Active Directory queries, collection diffing, conversational mode. Their settings rows exist so limits can be set ahead of time.
+* **Hunter agent (phase 3).** Chases an open-ended goal across the data (for example "find unusual service accounts") using the read-only tools plus guarded SELECT, and returns leads that go to the verifier.
+
+Not yet built: the coordinator, live Active Directory queries, collection diffing, conversational mode. The coordinator's settings row exists so its limits can be set ahead of time. Live AD is not available in this version and cannot be switched on.
+
+## Hunt
+
+Type a goal and press **Hunt** (the goal box has presets). The hunter returns leads, each an object or a path from a source to a target. The code, not the model, turns them into findings:
+
+* The source and target must resolve to real objects, or the lead is dropped and logged.
+* For a path lead the code recomputes the shortest path from the real edges and stores those hops. The model's own hop claims are never stored. A lead with no path is dropped.
+* Leads are stored as **unverified** findings marked "Found by hunter", with ids like `hunt:<source>><target>` or `hunt:object:<id>`. The known list and re-run behavior work as for triage.
+* **Verify** works on leads too. The code check recomputes the path and checks every hop; an object lead must still exist. **Open path** shows the route or object in the viewer.
+
+## Guarded SELECT
+
+`sql_select` lets the hunter and verifier run one read-only SELECT. `describe_schema` tells the model the tables. Safeguards enforced in code:
+
+* The main database is opened read-only, and SQLite's authorizer allows only SELECT (and WITH), only the tables `nodes`, `edges`, `external`, `dns` and `analysis_nodes`, and a short list of safe functions. The raw `record` column is never readable, so `SELECT *` on nodes is refused. Everything else (writes, PRAGMA, ATTACH, extensions, other tables) is denied by SQLite itself, not just by text checks.
+* Text checks also refuse semicolons, comments, over-long queries and the words attach, pragma, insert, update, delete, drop, create, alter.
+* A row cap and a time limit apply, and Stop cancels a running query. Rows, seconds, query length and the lead cap are in the settings (SQL row cap, SQL time limit, most leads per hunt).
+* The tool can be switched off in the Tools tab. Every query appears in the log as a tool call.
 
 ## Verify, explain, report
 

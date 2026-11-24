@@ -1,4 +1,4 @@
-# Tessera AI agents (phase 1: triage)
+# Tessera AI agents (phases 1 and 2: triage, verifier, explainer)
 
 Optional. Tessera, the collector and the viewer work exactly as before with no AI at all, including on an air-gapped machine. The agent layer sits next to Scout (the existing assistant) and reuses its connection: you press **Connect** in Scout setup with your API key, and the agents use that key, that service and that model list. The key is never saved.
 
@@ -9,7 +9,25 @@ Optional. Tessera, the collector and the viewer work exactly as before with no A
 * **Findings store.** A small separate SQLite file next to the main graph, named `<graph>.findings.sqlite`. Agents never write to the main database; it is opened read-only for every tool call.
 * **Investigate tab.** Goal box, live activity, findings grid, detail pane, log view (filter, search, export), known/accepted list, and an **AI settings** screen.
 
-Not in phase 1: explainer, verifier, hunter and coordinator agents, guarded SELECT, live Active Directory queries, collection diffing, conversational mode. Their settings rows exist so limits can be set ahead of time. Every finding is therefore shown as **unverified**; the verified badge appears when a verifier exists.
+* **Verifier agent (phase 2).** Re-checks every claim in a finding against the raw data and marks it confirmed or rejected. It is the only gate to the report.
+* **Explainer agent (phase 2).** Turns the stored findings into a plain English story, hop by hop, and names the single fix that breaks the most paths.
+
+Not yet built: hunter and coordinator agents, guarded SELECT, live Active Directory queries, collection diffing, conversational mode. Their settings rows exist so limits can be set ahead of time.
+
+## Verify, explain, report
+
+Triage stores every finding as **unverified**. Use **Verify selected** or **Verify all unverified**. The check has two layers and the code has the last word:
+
+1. Before any model call, the code checks that the saved path exists and that every hop is a real traversable edge in the collected data. If not, the finding is rejected straight away and no tokens are spent.
+2. The verifier model then tests each claim (path, hops, account type, disabled state, group size, role) with the read-only tools and returns one check per claim: supported, contradicted or unverifiable. The code decides the verdict: any contradicted claim, or no supported claim at all, means rejected, whatever the model says. The checks are saved with the finding and shown in the detail pane.
+
+A confirmed verdict is tied to the snapshot it was checked against. If triage is re-run after the data changes, the finding goes back to unverified.
+
+**Explain and suggest fix** runs the explainer over the stored findings. It uses `common_hops`, which counts in code which relationship appears in the most stored paths, so the fix is chosen from real overlap. Candidate ids the model lists under "breaks" must be stored findings or they are removed. The result appears in the **Explanation** tab and is kept in the findings file.
+
+**Export verified report...** writes a markdown file containing confirmed findings only (with the verifier's checks) plus the latest explanation. Unverified and rejected findings are counted but never listed. This is the only report the agent layer produces.
+
+Phase 2 adds four tools: `list_findings`, `get_finding`, `edges_between` (direct relationships between two objects, read from the raw edge data) and `common_hops`. The verifier and explainer have their own tool allowlists; triage cannot call them. `node_info` now also shows the collected disabled flag.
 
 ## How the model talks to the tools
 
@@ -24,7 +42,7 @@ The loop strips code fences and prose, parses the first complete JSON object, an
 
 Each agent has a maximum number of steps, a token budget and a per-request timeout. When the step budget runs out, one last request can only be a final answer.
 
-## Tools (all read-only)
+## Triage and shared tools (all read-only)
 
 | Tool | What it returns |
 | --- | --- |

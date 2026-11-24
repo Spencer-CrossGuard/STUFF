@@ -328,7 +328,7 @@ Read [PATH-PARITY.md](PATH-PARITY.md) for the source comparison, validation, and
 
 ## Scout, the AI assistant (desktop viewer)
 
-The viewer has a **Scout** tab. On the Paths tab, **Ask Scout** loads the path or route currently shown; on Objects & relationships, **Ask Scout** loads the selected relationship. Scout explains it in plain language and recommends fixes, using the relationship glossary built into the viewer. Scout connects only to GenAI.mil.
+The viewer has a **Scout** tab. On the Paths tab, **Ask Scout** loads the path or route currently shown; on Objects & relationships, **Ask Scout** loads the selected relationship. Scout explains it in plain language and recommends fixes, using the relationship glossary built into the viewer. Scout connects only to GenAI.mil. Next to Scout, the **Investigate** tab runs a triage agent that ranks the saved candidate paths using read-only tools and keeps its results in a separate findings file; see docs/AGENTS.md. With AI switched off in the AI settings, none of this appears.
 
 Scout can be asked about five things:
 * **A path or route** (Paths tab, **Ask Scout**) and **a relationship** (Objects and relationships tab, **Ask Scout**).

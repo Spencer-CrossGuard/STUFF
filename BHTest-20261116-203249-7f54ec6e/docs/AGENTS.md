@@ -1,4 +1,4 @@
-# Tessera AI agents (phases 1 to 3: triage, verifier, explainer, hunter)
+# Tessera AI agents (phases 1 to 4: triage, verifier, explainer, hunter, chat coordinator)
 
 Optional. Tessera, the collector and the viewer work exactly as before with no AI at all, including on an air-gapped machine. The agent layer sits next to Scout (the existing assistant) and reuses its connection: you press **Connect** in Scout setup with your API key, and the agents use that key, that service and that model list. The key is never saved.
 
@@ -14,7 +14,19 @@ Optional. Tessera, the collector and the viewer work exactly as before with no A
 
 * **Hunter agent (phase 3).** Chases an open-ended goal across the data (for example "find unusual service accounts") using the read-only tools plus guarded SELECT, and returns leads that go to the verifier.
 
-Not yet built: the coordinator, live Active Directory queries, collection diffing, conversational mode. The coordinator's settings row exists so its limits can be set ahead of time. Live AD is not available in this version and cannot be switched on.
+* **Coordinator (phase 4).** The **Chat** tab: one chat box for all of the above.
+
+Not yet built: live Active Directory queries and collection diffing. Live AD is not available in this version and cannot be switched on.
+
+## Chat
+
+Type in plain language in the Chat tab, for example "what is the worst thing you found?", "verify the high ones", "hunt for unusual service accounts" or "explain the fix". The coordinator is a thin router with only three tools: `list_findings`, `get_finding` and `start_agent`. It answers from the stored findings when it can, and starts an agent only when that is not enough. It has no access to the directory data itself.
+
+* **Ask first.** By default a prompt shows which agent, with what goal, before anything starts (settings: "Ask me before the chat assistant starts an agent"). The prompt appears because starting an agent spends model requests.
+* **Limits in code.** `start_agent` only accepts triage, hunter, verifier or explainer (it cannot start itself or anything else). A chat message may start at most "Most agents per chat message" agents (default 3), and a verifier request checks at most "Most findings verified per request" findings (default 10).
+* **Stop** cancels the coordinator and the agent it started.
+* **Honest about status.** The prompt tells it to use the status the tools show (confirmed, unverified, rejected) and never to call something verified otherwise. It cannot export the report, accept a risk or mark a false positive; those stay buttons you press. The explanation, findings, activity and log update as the started agents run, so everything it does is visible and logged.
+* **Conversation memory** lasts for the session. The last part of the chat (up to "chat history size" characters, in the config file) goes back to the model with each message. Older replies are labeled as model notes, not instructions.
 
 ## Hunt
 

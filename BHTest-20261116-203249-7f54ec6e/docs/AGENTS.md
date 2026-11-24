@@ -64,12 +64,12 @@ Safeguards enforced in code, not only in the prompt: the executor refuses unknow
 
 One screen (Investigate, **AI settings**) over one file, `%LOCALAPPDATA%\Tessera\ai-config.json`. Missing values use defaults, so a partial or old file still loads.
 
-* **General:** turn the AI layer on or off (off removes the Scout and Investigate tabs and the Ask Scout buttons after a restart), optional service address, auth header and scheme, default model, pause between requests, retries per step.
-* **Agents:** one row per agent with a model dropdown filled from the service's model list ("use default" falls back to the default model, then to the model chosen in Scout setup), plus max steps, max tokens, per-request timeout, max result size and reply size. The hunter defaults are the loosest. No model names are built in. If a chosen model is no longer offered, a warning shows in the Investigate header and the log, and the default is used. The model is logged on every request.
+* **General:** turn the AI layer on or off (off removes the Scout and Investigate tabs and the Ask Scout buttons after a restart), pause between requests, retries per step, and a button that opens Scout setup. There is no separate connection: the key, service, model list and default model are all Scout's.
+* **Agents:** one row per agent with a model dropdown filled from the service's model list ("use default" means the model chosen in Scout setup), plus max steps, max tokens, per-request timeout, max result size and reply size. The hunter defaults are the loosest. No model names are built in. If a chosen model is no longer offered, a warning shows in the Investigate header and the log, and the default is used. The model is logged on every request.
 * **Tools:** switch any tool off for all agents.
 * **Environment:** a named profile with your tier zero objects (names, ids or patterns) and free-text notes such as naming conventions. Agents are given these as context.
 
-The service address defaults to the built-in `https://api.genai.mil`. A custom address is accepted only if it is https and ends in `.mil`; anything else is ignored. Size and rate limits for genai.mil are not assumed anywhere in the code; everything is in the config file.
+The service address is the same fixed constant Scout uses (`https://api.genai.mil`); no setting changes it. Size and rate limits for genai.mil are not assumed anywhere in the code; everything is in the config file.
 
 ## Findings, known list and logs
 
@@ -83,4 +83,4 @@ Scout can replace object names with neutral tokens before sending. The agents ca
 
 ## Changes to existing files
 
-All additive: `GenAiClient` gained optional static settings (address override that must be https and .mil, auth header and scheme, request gap) and a constructor with a timeout; `ScoutSubjects.Properties` became internal; the viewer gained an Investigate tab, an "Investigate this object" button, and hides the Scout tab and Ask Scout buttons when the AI layer is switched off. Nothing in Scout's behavior changed.
+All additive: `GenAiClient` gained a tunable request gap and a constructor with a timeout (address and auth are unchanged); `ScoutSubjects.Properties` became internal; the viewer gained an Investigate tab, an "Investigate this object" button, and hides the Scout tab and Ask Scout buttons when the AI layer is switched off. Nothing in Scout's behavior changed.

@@ -121,17 +121,14 @@
             return Uri.TryCreate(url, UriKind.Absolute, out uri) && uri.Scheme == Uri.UriSchemeHttps && uri.Host.EndsWith(".mil", StringComparison.OrdinalIgnoreCase);
         }
 
-        // Added for the agent layer (all optional, all validated): see AiConfig.Apply. A custom address is only used when it is https and .mil.
-        internal static string EndpointOverride = "";
-        internal static string AuthHeader = "Authorization", AuthScheme = "Bearer";
+        // Added for the agent layer: the pause between requests can be tuned (default is the same as before).
         internal static int MinGapMilliseconds = MinimumMillisecondsBetweenRequests;
-        private static string BaseUrl() { return EndpointOverride.Length > 0 && IsMilHttps(EndpointOverride) ? EndpointOverride : Endpoint; }
 
         public GenAiClient(string apiKey) : this(apiKey, 180) { }
 
         public GenAiClient(string apiKey, int timeoutSeconds)
         {
-            if (!IsMilHttps(BaseUrl())) throw new InvalidOperationException("Scout only connects to a https .mil service.");
+            if (!IsMilHttps(Endpoint)) throw new InvalidOperationException("Scout only connects to a https .mil service.");
             key = apiKey;
             try { System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)3072; } catch (Exception) { }
             http = new System.Net.Http.HttpClient();
@@ -152,8 +149,8 @@
 
         private System.Net.Http.HttpResponseMessage Send(string path, bool post, string body)
         {
-            var request = new System.Net.Http.HttpRequestMessage(post ? System.Net.Http.HttpMethod.Post : System.Net.Http.HttpMethod.Get, BaseUrl() + path);
-            request.Headers.TryAddWithoutValidation(AuthHeader, (AuthScheme.Length > 0 ? AuthScheme + " " : "") + key);
+            var request = new System.Net.Http.HttpRequestMessage(post ? System.Net.Http.HttpMethod.Post : System.Net.Http.HttpMethod.Get, Endpoint + path);
+            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
             request.Headers.TryAddWithoutValidation("User-Agent", "Tessera-Scout");
             if (body != null) request.Content = new System.Net.Http.StringContent(body, new UTF8Encoding(false), "application/json");
             Pace();

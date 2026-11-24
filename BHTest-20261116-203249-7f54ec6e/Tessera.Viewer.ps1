@@ -4356,17 +4356,14 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             return Uri.TryCreate(url, UriKind.Absolute, out uri) && uri.Scheme == Uri.UriSchemeHttps && uri.Host.EndsWith(".mil", StringComparison.OrdinalIgnoreCase);
         }
 
-        // Added for the agent layer (all optional, all validated): see AiConfig.Apply. A custom address is only used when it is https and .mil.
-        internal static string EndpointOverride = "";
-        internal static string AuthHeader = "Authorization", AuthScheme = "Bearer";
+        // Added for the agent layer: the pause between requests can be tuned (default is the same as before).
         internal static int MinGapMilliseconds = MinimumMillisecondsBetweenRequests;
-        private static string BaseUrl() { return EndpointOverride.Length > 0 && IsMilHttps(EndpointOverride) ? EndpointOverride : Endpoint; }
 
         public GenAiClient(string apiKey) : this(apiKey, 180) { }
 
         public GenAiClient(string apiKey, int timeoutSeconds)
         {
-            if (!IsMilHttps(BaseUrl())) throw new InvalidOperationException("Scout only connects to a https .mil service.");
+            if (!IsMilHttps(Endpoint)) throw new InvalidOperationException("Scout only connects to a https .mil service.");
             key = apiKey;
             try { System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)3072; } catch (Exception) { }
             http = new System.Net.Http.HttpClient();
@@ -4387,8 +4384,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         private System.Net.Http.HttpResponseMessage Send(string path, bool post, string body)
         {
-            var request = new System.Net.Http.HttpRequestMessage(post ? System.Net.Http.HttpMethod.Post : System.Net.Http.HttpMethod.Get, BaseUrl() + path);
-            request.Headers.TryAddWithoutValidation(AuthHeader, (AuthScheme.Length > 0 ? AuthScheme + " " : "") + key);
+            var request = new System.Net.Http.HttpRequestMessage(post ? System.Net.Http.HttpMethod.Post : System.Net.Http.HttpMethod.Get, Endpoint + path);
+            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
             request.Headers.TryAddWithoutValidation("User-Agent", "Tessera-Scout");
             if (body != null) request.Content = new System.Net.Http.StringContent(body, new UTF8Encoding(false), "application/json");
             Pace();
@@ -6535,9 +6532,6 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
     {
         public static readonly string[] AgentNames = new string[] { "triage", "explainer", "verifier", "hunter", "coordinator" };
         public static bool Enabled = true;
-        public static string Endpoint = "";                       // empty = the built-in https://api.genai.mil; must be https and .mil
-        public static string AuthHeader = "Authorization", AuthScheme = "Bearer";
-        public static string DefaultModel = "";                   // empty = whatever model is chosen in Scout setup
         public static int MinGapMilliseconds = 1100;              // spacing between model requests (rate limit)
         public static int RetriesPerStep = 3;
         public static int DefaultListLimit = 15, MaxListLimit = 50, MaxCandidateWindow = 500, MaxScanRows = 200000, MaxShortestPathVisited = 50000;
@@ -6580,11 +6574,6 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             return p;
         }
 
-        public static bool EndpointAllowed(string url)
-        {
-            Uri u; return Uri.TryCreate(url, UriKind.Absolute, out u) && u.Scheme == Uri.UriSchemeHttps && u.Host.EndsWith(".mil", StringComparison.OrdinalIgnoreCase);
-        }
-
         private static int Int(Dictionary<string, object> m, string key, int fallback) { object v = GenAiJson.Get(m, key); return v is double ? (int)(double)v : fallback; }
         private static string Str(Dictionary<string, object> m, string key, string fallback) { string v = GenAiJson.Get(m, key) as string; return v ?? fallback; }
         private static bool Flag(Dictionary<string, object> m, string key, bool fallback) { object v = GenAiJson.Get(m, key); return v is bool ? (bool)v : fallback; }
@@ -6607,8 +6596,6 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             var root = GenAiJson.Obj(GenAiJson.Parse(json));
             if (root == null) return;
             Enabled = Flag(root, "enabled", Enabled);
-            var conn = GenAiJson.Obj(GenAiJson.Get(root, "connection"));
-            if (conn != null) { Endpoint = Str(conn, "endpoint", Endpoint); AuthHeader = Str(conn, "authHeader", AuthHeader); AuthScheme = Str(conn, "authScheme", AuthScheme); DefaultModel = Str(conn, "defaultModel", DefaultModel); }
             var lim = GenAiJson.Obj(GenAiJson.Get(root, "limits"));
             if (lim != null)
             {
@@ -6650,20 +6637,13 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             return result;
         }
 
-        /// <summary>Pushes the connection settings into Scout's client. A custom endpoint is only accepted when it is https and .mil.</summary>
-        public static void Apply()
-        {
-            GenAiClient.EndpointOverride = Endpoint.Length > 0 && EndpointAllowed(Endpoint) ? Endpoint.TrimEnd('/') : "";
-            GenAiClient.AuthHeader = AuthHeader.Length > 0 ? AuthHeader : "Authorization";
-            GenAiClient.AuthScheme = AuthScheme;
-            GenAiClient.MinGapMilliseconds = Math.Max(0, MinGapMilliseconds);
-        }
+        /// <summary>Applies the settings that reach the shared client. The address, key and auth are Scout's and cannot be changed here.</summary>
+        public static void Apply() { GenAiClient.MinGapMilliseconds = Math.Max(0, MinGapMilliseconds); }
 
         public static string ToJson()
         {
             var o = new StringBuilder("{\n");
             o.Append("  \"enabled\": ").Append(Enabled ? "true" : "false").Append(",\n");
-            o.Append("  \"connection\": { \"endpoint\": ").Append(GenAiJson.Quote(Endpoint)).Append(", \"authHeader\": ").Append(GenAiJson.Quote(AuthHeader)).Append(", \"authScheme\": ").Append(GenAiJson.Quote(AuthScheme)).Append(", \"defaultModel\": ").Append(GenAiJson.Quote(DefaultModel)).Append(" },\n");
             o.Append("  \"limits\": { \"minGapMilliseconds\": ").Append(MinGapMilliseconds).Append(", \"retriesPerStep\": ").Append(RetriesPerStep).Append(", \"defaultListLimit\": ").Append(DefaultListLimit).Append(", \"maxListLimit\": ").Append(MaxListLimit)
                 .Append(", \"maxCandidateWindow\": ").Append(MaxCandidateWindow).Append(", \"maxScanRows\": ").Append(MaxScanRows).Append(", \"maxShortestPathVisited\": ").Append(MaxShortestPathVisited).Append(", \"maxHistoryChars\": ").Append(MaxHistoryChars).Append(" },\n");
             o.Append("  \"agents\": {\n"); int n = 0;
@@ -6703,7 +6683,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
         {
             warning = null;
             string chosen = Agent(agent).Model ?? "";
-            string fallback = DefaultModel.Length > 0 ? DefaultModel : GenAiSession.Model;
+            string fallback = GenAiSession.Model;     // the model chosen in Scout setup
             bool listKnown = GenAiModels.Available.Count > 0;
             if (chosen.Length > 0 && (!listKnown || GenAiModels.Find(chosen) != null)) return chosen;
             if (chosen.Length > 0) warning = "The model '" + chosen + "' set for the " + agent + " agent is no longer offered. Using the default model instead.";
@@ -8293,8 +8273,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
     {
         private static readonly Color Bg = Color.FromArgb(12, 18, 32), PanelColor = Color.FromArgb(19, 30, 48), Line = Color.FromArgb(43, 58, 81), Ink = Color.FromArgb(237, 243, 252), Muted = Color.FromArgb(164, 180, 202);
         private readonly CheckBox enabled, liveAd;
-        private readonly TextBox endpoint, authHeader, authScheme, gap, retries, tier, notes, profile;
-        private readonly ComboBox defaultModel;
+        private readonly TextBox gap, retries, tier, notes, profile;
         private readonly DataGridView agents;
         private readonly CheckedListBox tools;
         private const string UseDefault = "(use default)";
@@ -8315,13 +8294,11 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
             var g = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = PanelColor, Padding = new Padding(12) };
             g.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210)); g.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             enabled = new CheckBox { Text = "Turn the AI layer on (Scout and Investigate). Restart the viewer to apply.", AutoSize = true, ForeColor = Ink };
-            endpoint = Field(); authHeader = Field(); authScheme = Field(); gap = Field(); retries = Field();
-            defaultModel = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDown, BackColor = Bg, ForeColor = Ink, FlatStyle = FlatStyle.Flat };
+            gap = Field(); retries = Field();
+            var scoutSetup = Flat("Open Scout setup..."); scoutSetup.Click += delegate { using (var d = new ScoutSetupDialog()) d.ShowDialog(this); Fill(); };
             liveAd = new CheckBox { Text = "Allow live Active Directory queries (not available in this version)", AutoSize = true, ForeColor = Muted, Enabled = false };
             AddRow(g, "", enabled);
-            AddRow(g, "Service address", endpoint); AddRow(g, "", Hint("Leave empty for the built-in https://api.genai.mil. Anything else must be https and end in .mil, otherwise it is ignored."));
-            AddRow(g, "Auth header", authHeader); AddRow(g, "Auth scheme", authScheme);
-            AddRow(g, "Default model", defaultModel); AddRow(g, "", Hint("Used by agents that have no model of their own. Empty means the model chosen in Scout setup. The list comes from the service (press Connect in Scout setup)."));
+            AddRow(g, "Connection", scoutSetup); AddRow(g, "", Hint("The key, service, model list and default model are all set in Scout setup. The agents use exactly the same connection as Scout."));
             AddRow(g, "Pause between requests (ms)", gap); AddRow(g, "Retries per step", retries);
             AddRow(g, "", liveAd);
             general.Controls.Add(g);
@@ -8381,9 +8358,8 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         private void Fill()
         {
-            enabled.Checked = AiConfig.Enabled; endpoint.Text = AiConfig.Endpoint; authHeader.Text = AiConfig.AuthHeader; authScheme.Text = AiConfig.AuthScheme;
+            enabled.Checked = AiConfig.Enabled;
             gap.Text = AiConfig.MinGapMilliseconds.ToString(CultureInfo.InvariantCulture); retries.Text = AiConfig.RetriesPerStep.ToString(CultureInfo.InvariantCulture);
-            defaultModel.Items.Clear(); defaultModel.Items.Add(""); foreach (GenAiModelInfo m in GenAiModels.Available) defaultModel.Items.Add(m.Id); defaultModel.Text = AiConfig.DefaultModel;
             agents.Rows.Clear();
             foreach (string name in AiConfig.AgentNames)
             {
@@ -8401,9 +8377,7 @@ topics.Add("unsupported",new HelpEntry("unsupported","Collection and reports","U
 
         private bool Apply()
         {
-            string address = endpoint.Text.Trim();
-            if (address.Length > 0 && !AiConfig.EndpointAllowed(address)) { MessageBox.Show(this, "The service address must start with https:// and end in .mil. Leave it empty to use the built-in address.", "AI settings"); return false; }
-            AiConfig.Enabled = enabled.Checked; AiConfig.Endpoint = address; AiConfig.AuthHeader = authHeader.Text.Trim(); AiConfig.AuthScheme = authScheme.Text.Trim(); AiConfig.DefaultModel = defaultModel.Text.Trim();
+            AiConfig.Enabled = enabled.Checked;
             AiConfig.MinGapMilliseconds = Num(gap.Text, AiConfig.MinGapMilliseconds, 0); AiConfig.RetriesPerStep = Num(retries.Text, AiConfig.RetriesPerStep, 0);
             foreach (DataGridViewRow row in agents.Rows)
             {
